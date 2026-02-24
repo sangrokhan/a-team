@@ -69,11 +69,11 @@ function findRepositoryRoot(startDir = process.cwd()): string {
 }
 
 function defaultStateRoot(): string {
-  const explicit = process.env.OMX_STATE_ROOT;
+  const explicit = process.env.A_TEAM_STATE_ROOT;
   if (explicit) {
     return path.resolve(explicit);
   }
-  return path.resolve(findRepositoryRoot(), '.omx', 'state', 'jobs');
+  return path.resolve(findRepositoryRoot(), '.a-team', 'state', 'jobs');
 }
 
 async function ensureParentDir(filePath: string) {

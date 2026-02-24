@@ -132,7 +132,8 @@ class TeamOptionsDto {
   tmuxVisualization?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Reserved object for future plan/approval extensions.',
+    description:
+      'Reserved extension object for plan/approval extensions. For task-level approval automation, set `approvalPolicy` with `mode`, role/keyword allow/deny lists, and optional `maxRiskScore`.',
   })
   @IsOptional()
   @IsObject()
@@ -140,6 +141,14 @@ class TeamOptionsDto {
 }
 
 class JobOptionsDto {
+  @ApiPropertyOptional({
+    default: false,
+    description: 'When true, create a search-style job without mandatory repo/ref inputs.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  searchMode?: boolean;
+
   @ApiPropertyOptional({ minimum: 1, maximum: 16, default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -193,12 +202,14 @@ export class CreateJobDto {
   @IsEnum(modes)
   mode!: (typeof modes)[number];
 
+  @ValidateIf((value) => !value.options?.searchMode)
   @ApiProperty({ example: 'git@github.com:org/project.git' })
   @IsString()
   @MinLength(3)
   @MaxLength(512)
   repo!: string;
 
+  @ValidateIf((value) => !value.options?.searchMode)
   @ApiProperty({ example: 'main' })
   @IsString()
   @MinLength(1)

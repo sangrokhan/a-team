@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Query,
   HttpCode,
   Param,
   Post,
@@ -18,11 +19,14 @@ import {
 import { MessageEvent } from '@nestjs/common';
 import { Observable, filter, from, interval, map, mergeMap, startWith } from 'rxjs';
 import { CreateJobDto } from './dto/create-job.dto';
+import { ListJobEventsQueryDto } from './dto/list-job-events-query.dto';
+import { ListTeamMailboxQueryDto } from './dto/list-team-mailbox-query.dto';
+import { ListJobsQueryDto } from './dto/list-jobs-query.dto';
 import { actions, teamTaskActions, JobAction, TeamTaskAction } from './job.types';
 import { JobsService } from './jobs.service';
 
 @ApiTags('jobs')
-@Controller(['jobs', 'runs'])
+@Controller('jobs')
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
 
@@ -35,6 +39,18 @@ export class JobsController {
       jobId: created.id,
       status: created.status,
     };
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List jobs with optional filters' })
+  @ApiOkResponse({ description: 'Job list' })
+  list(@Query() query: ListJobsQueryDto) {
+    return this.jobsService.listJobs({
+      statuses: query.statuses,
+      modes: query.modes,
+      limit: query.limit,
+      updatedAfter: query.updatedAfter,
+    });
   }
 
   @Get(':jobId')
@@ -54,8 +70,18 @@ export class JobsController {
   @Get(':jobId/team/mailbox')
   @ApiOperation({ summary: 'Get team mailbox messages for a team job' })
   @ApiOkResponse({ description: 'Team mailbox snapshot' })
-  getTeamMailbox(@Param('jobId') jobId: string): Promise<unknown[]> {
-    return this.jobsService.getTeamMailbox(jobId);
+  getTeamMailbox(
+    @Param('jobId') jobId: string,
+    @Query() query?: ListTeamMailboxQueryDto,
+  ): Promise<unknown[]> {
+    return this.jobsService.getTeamMailbox(jobId, query?.after);
+  }
+
+  @Get(':jobId/events/list')
+  @ApiOperation({ summary: 'Get recent job events as JSON' })
+  @ApiOkResponse({ description: 'Recent job events' })
+  listEvents(@Param('jobId') jobId: string, @Query() query: ListJobEventsQueryDto): Promise<unknown[]> {
+    return this.jobsService.listRecentEvents(jobId, query.limit ?? 100);
   }
 
   @Post(':jobId/team/mailbox')

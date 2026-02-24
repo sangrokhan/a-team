@@ -89,16 +89,21 @@ export class QueueService implements OnApplicationShutdown {
 }
 
 function resolveStateRoot() {
-  const explicit = process.env.OMX_STATE_ROOT;
+  const explicit = process.env.A_TEAM_STATE_ROOT;
   if (explicit) {
     return path.resolve(explicit);
   }
 
-  let current = process.cwd();
+  return path.join(findRepositoryRoot(), '.a-team', 'state', 'jobs');
+}
+
+function findRepositoryRoot(startDir = process.cwd()): string {
+  let current = path.resolve(startDir);
   for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = path.join(current, '.omx', 'state', 'jobs');
-    if (existsSync(candidate)) {
-      return candidate;
+    const hasApi = existsSync(path.join(current, 'services', 'api', 'package.json'));
+    const hasWorker = existsSync(path.join(current, 'services', 'worker', 'package.json'));
+    if (hasApi || hasWorker) {
+      return current;
     }
 
     const parent = path.dirname(current);
@@ -108,7 +113,7 @@ function resolveStateRoot() {
     current = parent;
   }
 
-  return path.join(process.cwd(), '.omx', 'state', 'jobs');
+  return process.cwd();
 }
 
 async function exists(filePath: string) {

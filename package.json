@@ -1,19 +1,18 @@
 {
-  "name": "dev-crew",
+  "name": "a-team",
   "version": "0.2.0",
   "private": true,
   "bin": {
-    "dev-crew": "./bin/dev-crew.mjs",
-    "dev-crew-setup-cli-paths": "./bin/dev-crew-setup-cli-paths.mjs"
+    "a-team": "./bin/a-team.mjs"
   },
   "workspaces": [
     "services/api",
     "services/worker"
   ],
   "scripts": {
-    "postinstall": "node ./bin/dev-crew.mjs setup-cli-paths",
-    "setup:cli-paths": "node ./bin/dev-crew.mjs setup-cli-paths",
-    "setup:cli-paths:dry-run": "node ./bin/dev-crew.mjs setup-cli-paths --dry-run",
+    "postinstall": "node ./bin/a-team.mjs setup",
+    "setup:home": "node ./bin/a-team.mjs setup",
+    "run": "node ./scripts/run.mjs",
     "build": "npm run build -w services/api && npm run build -w services/worker",
     "test": "npm run test -w services/api && npm run test -w services/worker",
     "dev": "npm run dev:local",

@@ -7,6 +7,16 @@ import { JobFileStore, ListJobsOptions } from './storage/job-store';
 type TeamTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'canceled';
 type TeamRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'canceled';
 type TeamTaskOutput = Record<string, unknown> | null;
+type TeamPipelinePhase = 'team-plan' | 'team-prd' | 'team-exec' | 'team-verify' | 'team-fix' | 'complete' | 'failed' | 'cancelled';
+type TeamPipelineTransitionEvent =
+  | 'plan_ready'
+  | 'tasks_started'
+  | 'verification_required'
+  | 'fix_attempt'
+  | 'verification_resumed'
+  | 'complete'
+  | 'failed'
+  | 'cancelled';
 
 interface TeamTaskTemplate {
   id: string;
@@ -41,6 +51,47 @@ interface TeamRunState {
   parallelTasks: number;
   tasks: TeamTaskState[];
   mailbox?: TeamMailboxMessage[];
+  pipelinePhase?: TeamPipelinePhase;
+  phaseHistory?: TeamPipelinePhaseHistoryEntry[];
+  sessionId?: string;
+  active?: boolean;
+  iteration?: number;
+  maxIterations?: number;
+  startedAt?: string;
+  updatedAt?: string;
+  completedAt?: string | null;
+  schemaVersion?: number;
+  stateVersion?: number;
+  execution?: TeamPipelineExecution;
+  fixLoop?: TeamFixLoop;
+  cancel?: TeamCancelPolicy;
+}
+
+interface TeamPipelinePhaseHistoryEntry {
+  phase: TeamPipelinePhase;
+  enteredAt: string;
+  reason?: string;
+}
+
+interface TeamPipelineExecution {
+  workersTotal: number;
+  workersActive: number;
+  tasksTotal: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+  lastFailureReason?: string | null;
+}
+
+interface TeamFixLoop {
+  attempt: number;
+  maxAttempts: number;
+  lastFailureReason?: string | null;
+}
+
+interface TeamCancelPolicy {
+  requested: boolean;
+  requestedAt?: string | null | undefined;
+  preserveForResume: boolean;
 }
 
 type TeamMailboxKind = 'question' | 'instruction' | 'notice' | 'reassign';
@@ -55,6 +106,7 @@ interface TeamMailboxMessage {
   createdAt: string;
   deliveredAt?: string | null;
   delivered: boolean;
+  sequence?: number;
   meta?: Record<string, unknown>;
 }
 
@@ -122,6 +174,281 @@ export interface MonitorOverview {
 }
 
 const TERMINAL_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled'];
+const TEAM_PIPELINE_PHASES: TeamPipelinePhase[] = [
+  'team-plan',
+  'team-prd',
+  'team-exec',
+  'team-verify',
+  'team-fix',
+  'complete',
+  'failed',
+  'cancelled',
+];
+const TEAM_PIPELINE_PHASE_SET = new Set<string>(TEAM_PIPELINE_PHASES);
+const TEAM_PIPELINE_INITIAL_PHASE: TeamPipelinePhase = 'team-plan';
+const TEAM_PIPELINE_PHASE_EVENT_TRANSITIONS: Record<
+  TeamPipelinePhase,
+  Partial<Record<TeamPipelineTransitionEvent, TeamPipelinePhase>>
+> = {
+  'team-plan': {
+    plan_ready: 'team-prd',
+    tasks_started: 'team-exec',
+    cancelled: 'cancelled',
+  },
+  'team-prd': {
+    tasks_started: 'team-exec',
+    fix_attempt: 'team-fix',
+    verification_required: 'team-verify',
+    complete: 'complete',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  },
+  'team-exec': {
+    tasks_started: 'team-exec',
+    verification_required: 'team-verify',
+    fix_attempt: 'team-fix',
+    complete: 'complete',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  },
+  'team-verify': {
+    verification_resumed: 'team-exec',
+    fix_attempt: 'team-fix',
+    complete: 'complete',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  },
+  'team-fix': {
+    tasks_started: 'team-exec',
+    verification_required: 'team-verify',
+    complete: 'complete',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  },
+  complete: {
+    plan_ready: 'team-prd',
+    complete: 'complete',
+  },
+  failed: {
+    plan_ready: 'team-prd',
+  },
+  cancelled: {
+    plan_ready: 'team-plan',
+    tasks_started: 'team-exec',
+  },
+};
+const TEAM_PIPELINE_STATE_SCHEMA_VERSION = 1;
+
+function getAllowedTeamTransitionEvent(
+  state: TeamRunState,
+  event?: TeamPipelineTransitionEvent,
+): TeamPipelineTransitionEvent | undefined {
+  if (!event) {
+    return undefined;
+  }
+
+  const currentPhase = isTeamPipelinePhase(state.pipelinePhase)
+    ? state.pipelinePhase
+    : resolveLegacyTeamPipelinePhase(state);
+  return TEAM_PIPELINE_PHASE_EVENT_TRANSITIONS[currentPhase]?.[event] ? event : undefined;
+}
+
+function nowIsoString(): string {
+  return new Date().toISOString();
+}
+
+function isTeamPipelinePhase(raw: unknown): raw is TeamPipelinePhase {
+  return typeof raw === 'string' && TEAM_PIPELINE_PHASE_SET.has(raw);
+}
+
+function normalizeNumericValue(value: unknown, fallback = 0): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
+function resolveLegacyTeamPipelinePhase(state: TeamRunState): TeamPipelinePhase {
+  if (state.status === 'canceled') {
+    return 'cancelled';
+  }
+  if (state.status === 'succeeded') {
+    return 'complete';
+  }
+  if (state.status === 'failed') {
+    return 'failed';
+  }
+  if (state.status === 'waiting_approval') {
+    return 'team-verify';
+  }
+  if (state.tasks.length === 0) {
+    return TEAM_PIPELINE_INITIAL_PHASE;
+  }
+  if (state.fixAttempts > 0 && state.tasks.some((task) => task.status === 'failed')) {
+    return 'team-fix';
+  }
+  if (state.tasks.some((task) => task.status === 'running' || task.status === 'queued')) {
+    return 'team-exec';
+  }
+  if (state.tasks.every((task) => task.status === 'succeeded')) {
+    return 'complete';
+  }
+  if (state.status === 'queued') {
+    return 'team-prd';
+  }
+  return 'team-exec';
+}
+
+function normalizeTeamPipelinePhaseHistory(
+  phaseHistory: unknown,
+  currentPhase: TeamPipelinePhase,
+  nextPhase: TeamPipelinePhase,
+  enteredAt: string,
+  reason?: string,
+): TeamPipelinePhaseHistoryEntry[] {
+  const rawEntries = Array.isArray(phaseHistory) ? phaseHistory : [];
+  type TeamPipelinePhaseHistoryCandidate = {
+    phase?: TeamPipelinePhase;
+    enteredAt?: string;
+    reason?: string;
+  };
+  const nextHistory = rawEntries
+    .map((entry): TeamPipelinePhaseHistoryCandidate => {
+      const value = asRecord(entry);
+      const phase = value.phase;
+      const enteredAtValue = typeof value.enteredAt === 'string' ? value.enteredAt : undefined;
+      const reason = typeof value.reason === 'string' ? value.reason.trim() : undefined;
+      return {
+        phase: isTeamPipelinePhase(phase) ? phase : undefined,
+        enteredAt: enteredAtValue,
+        reason,
+      };
+    })
+    .filter(
+      (entry): entry is TeamPipelinePhaseHistoryEntry =>
+        typeof entry.phase === 'string' &&
+        isTeamPipelinePhase(entry.phase) &&
+        typeof entry.enteredAt === 'string' &&
+        entry.enteredAt.length > 0,
+    );
+
+  if (nextHistory.length === 0) {
+    return [{ phase: currentPhase, enteredAt }];
+  }
+
+  const latest = nextHistory[nextHistory.length - 1];
+  if (latest.phase !== nextPhase) {
+    return [
+      ...nextHistory,
+      {
+        phase: nextPhase,
+        enteredAt,
+        reason: reason?.trim(),
+      },
+    ];
+  }
+  return nextHistory;
+}
+
+function transitionTeamPipelinePhase(
+  state: TeamRunState,
+  enteredAt: string,
+  event?: TeamPipelineTransitionEvent,
+  reason?: string,
+): TeamRunState {
+  const currentPhase = isTeamPipelinePhase(state.pipelinePhase)
+    ? state.pipelinePhase
+    : TEAM_PIPELINE_INITIAL_PHASE;
+  const effectiveReason = reason?.trim() ?? (event ? `event:${event}` : `recomputed:${currentPhase}`);
+
+  if (!event) {
+    const fallbackPhase = isTeamPipelinePhase(state.pipelinePhase) ? state.pipelinePhase : resolveLegacyTeamPipelinePhase(state);
+    return {
+      ...state,
+      pipelinePhase: fallbackPhase,
+      phaseHistory: normalizeTeamPipelinePhaseHistory(state.phaseHistory, fallbackPhase, fallbackPhase, enteredAt, effectiveReason),
+    };
+  }
+
+  const targetPhase = TEAM_PIPELINE_PHASE_EVENT_TRANSITIONS[currentPhase]?.[event];
+  if (!targetPhase) {
+    throw new BadRequestException(`Invalid team pipeline transition '${event}' from phase '${currentPhase}'`);
+  }
+  if (currentPhase === targetPhase) {
+    return {
+      ...state,
+      phaseHistory: normalizeTeamPipelinePhaseHistory(state.phaseHistory, currentPhase, currentPhase, enteredAt, effectiveReason),
+    };
+  }
+
+  return {
+    ...state,
+    pipelinePhase: targetPhase,
+    phaseHistory: normalizeTeamPipelinePhaseHistory(state.phaseHistory, currentPhase, targetPhase, enteredAt, effectiveReason),
+  };
+}
+
+function normalizeTeamExecution(state: TeamRunState): TeamPipelineExecution {
+  const failedError = state.tasks.find((task) => task.status === 'failed' && typeof task.error === 'string' && task.error.trim().length > 0)?.error;
+  return {
+    workersTotal: state.tasks.length,
+    workersActive: state.tasks.filter((task) => task.status === 'running' && Boolean(task.workerId)).length,
+    tasksTotal: state.tasks.length,
+    tasksCompleted: state.tasks.filter((task) => task.status === 'succeeded').length,
+    tasksFailed: state.tasks.filter((task) => task.status === 'failed').length,
+    lastFailureReason: failedError,
+  };
+}
+
+function withTeamPipelineMetadata(
+  state: TeamRunState,
+  sessionId = 'unknown',
+  transitionEvent?: TeamPipelineTransitionEvent,
+  reason?: string,
+): TeamRunState {
+  const now = nowIsoString();
+  const safeFixAttempts = normalizeNumericValue(state.fixAttempts, 0);
+  const safeMaxFixAttempts = normalizeNumericValue(state.maxFixAttempts, 0);
+  const safeIteration = normalizeNumericValue(state.iteration, safeFixAttempts + 1);
+  const safeMaxIterations = Math.max(1, normalizeNumericValue(state.maxIterations, safeMaxFixAttempts > 0 ? safeMaxFixAttempts : 1));
+  const isTerminal = state.status === 'succeeded' || state.status === 'failed' || state.status === 'canceled';
+  const transitioned = transitionTeamPipelinePhase(state, now, transitionEvent, reason);
+  const failureReason = state.tasks.find((task) => task.status === 'failed' && typeof task.error === 'string')?.error;
+  const nextStateVersion = normalizeNumericValue(state.stateVersion, 0);
+  const schemaVersion = normalizeNumericValue(state.schemaVersion, TEAM_PIPELINE_STATE_SCHEMA_VERSION);
+  const preserveForResume = typeof transitioned.cancel?.preserveForResume === 'boolean'
+    ? transitioned.cancel.preserveForResume
+    : isTerminal;
+
+  return {
+    ...transitioned,
+    pipelinePhase: transitioned.pipelinePhase ?? TEAM_PIPELINE_INITIAL_PHASE,
+    phaseHistory: normalizeTeamPipelinePhaseHistory(transitioned.phaseHistory, transitioned.pipelinePhase ?? TEAM_PIPELINE_INITIAL_PHASE, transitioned.pipelinePhase ?? TEAM_PIPELINE_INITIAL_PHASE, now),
+    sessionId: transitioned.sessionId || sessionId,
+    active: !isTerminal,
+    iteration: safeIteration,
+    maxIterations: safeMaxIterations,
+    startedAt: transitioned.startedAt || now,
+    updatedAt: now,
+    completedAt: isTerminal ? (transitioned.completedAt || now) : null,
+    schemaVersion: schemaVersion,
+    stateVersion: nextStateVersion,
+    execution: normalizeTeamExecution(transitioned),
+    fixLoop: {
+      attempt: safeFixAttempts,
+      maxAttempts: safeMaxFixAttempts,
+      lastFailureReason: failureReason ?? null,
+    },
+    cancel: {
+      requested: transitioned.status === 'canceled' ? true : Boolean(transitioned.cancel?.requested),
+      requestedAt:
+        transitioned.status === 'canceled'
+          ? (transitioned.cancel?.requestedAt || transitioned.completedAt || now)
+          : null,
+      preserveForResume,
+    },
+  };
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -248,6 +575,7 @@ function normalizeTeamMailboxMessage(raw: unknown, defaultIdx: number): TeamMail
           : undefined;
 
   const taskId = typeof item.taskId === 'string' && item.taskId.trim() ? item.taskId.trim() : undefined;
+  const sequence = typeof item.sequence === 'number' && Number.isFinite(item.sequence) ? Math.floor(item.sequence) : undefined;
   return {
     id:
       typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `${kind}-${Date.now().toString(36)}-${defaultIdx}`,
@@ -259,6 +587,7 @@ function normalizeTeamMailboxMessage(raw: unknown, defaultIdx: number): TeamMail
     createdAt: typeof item.createdAt === 'string' && item.createdAt.trim() ? item.createdAt : new Date().toISOString(),
     deliveredAt: typeof item.deliveredAt === 'string' && item.deliveredAt.trim() ? item.deliveredAt : null,
     delivered: typeof item.delivered === 'boolean' ? item.delivered : false,
+    sequence: sequence === undefined || Number.isNaN(sequence) ? undefined : Math.max(0, sequence),
     meta: asRecord(item.meta),
   };
 }
@@ -268,10 +597,21 @@ function normalizeTeamMailbox(raw: unknown): TeamMailboxMessage[] {
     return [];
   }
 
-  return raw
+  const normalized = raw
     .map((item, idx) => normalizeTeamMailboxMessage(item, idx))
     .filter((message): message is TeamMailboxMessage => message !== null)
-    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+    .map((message, idx) => ({
+      ...message,
+      sequence: typeof message.sequence === 'number' && Number.isFinite(message.sequence) ? Math.max(0, Math.floor(message.sequence)) : idx + 1,
+    }))
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt < b.createdAt ? -1 : 1;
+      }
+      return (a.sequence ?? 0) - (b.sequence ?? 0);
+    });
+
+  return normalized;
 }
 
 function normalizeTaskTemplates(templates?: Array<Record<string, unknown>>): TeamTaskState[] {
@@ -459,8 +799,8 @@ function defaultTeamState(rawState?: Record<string, unknown>): TeamRunState {
   const taskSeed = normalizeTaskTemplates(taskTemplates);
 
   const phase = typeof state.phase === 'string' && state.phase.trim() ? state.phase : 'planning';
-
-  return {
+  const startedAt = typeof state.startedAt === 'string' && state.startedAt.trim() ? state.startedAt : nowIsoString();
+  const base: TeamRunState = {
     status: 'queued',
     phase,
     fixAttempts: 0,
@@ -469,7 +809,35 @@ function defaultTeamState(rawState?: Record<string, unknown>): TeamRunState {
     currentTaskId: null,
     mailbox: [],
     tasks: taskSeed,
+    sessionId: typeof state.sessionId === 'string' && state.sessionId.trim() ? state.sessionId : 'legacy',
+    active: true,
+    iteration: 1,
+    maxIterations: maxFixAttempts > 0 ? maxFixAttempts : 1,
+    startedAt,
+    updatedAt: nowIsoString(),
+    completedAt: null,
+    execution: {
+      workersTotal: taskSeed.length,
+      workersActive: 0,
+      tasksTotal: taskSeed.length,
+      tasksCompleted: 0,
+      tasksFailed: 0,
+    },
+    schemaVersion: TEAM_PIPELINE_STATE_SCHEMA_VERSION,
+    stateVersion: 1,
+    fixLoop: {
+      attempt: 0,
+      maxAttempts: Math.max(1, maxFixAttempts),
+      lastFailureReason: null,
+    },
+    cancel: {
+      requested: false,
+      preserveForResume: true,
+    },
+    pipelinePhase: TEAM_PIPELINE_INITIAL_PHASE,
+    phaseHistory: [{ phase: TEAM_PIPELINE_INITIAL_PHASE, enteredAt: startedAt }],
   };
+  return withTeamPipelineMetadata(base, base.sessionId);
 }
 
 function toTeamTaskPhase(tasks: TeamTaskState[]): string {
@@ -517,6 +885,11 @@ export class JobsService {
   async createJob(dto: CreateJobDto) {
     const approvalState: JobRecord['approvalState'] = dto.options?.requireApproval ? 'required' : 'none';
     const options: Record<string, unknown> = asRecord(dto.options);
+    const isSearchMode = options.searchMode === true;
+    const repoInput = typeof dto.repo === 'string' ? dto.repo.trim() : '';
+    const refInput = typeof dto.ref === 'string' ? dto.ref.trim() : '';
+    const repo = isSearchMode ? (repoInput || 'search://local') : (repoInput || dto.repo);
+    const ref = isSearchMode ? (refInput || 'main') : (refInput || dto.ref);
 
     if (dto.mode === 'team' && !asRecord(options.team).state) {
       options.team = {
@@ -525,7 +898,15 @@ export class JobsService {
       };
     }
 
-    const created = await this.store.createJob({ ...dto, options }, approvalState);
+    const created = await this.store.createJob(
+      {
+        ...dto,
+        repo,
+        ref,
+        options,
+      },
+      approvalState,
+    );
     await this.addEvent(created.id, 'queued', 'Job queued');
     await this.queue.enqueueJob(created.id);
     return created;
@@ -559,14 +940,32 @@ export class JobsService {
     } as Record<string, unknown>;
   }
 
-  async getTeamMailbox(jobId: string): Promise<TeamMailboxMessage[]> {
+  async getTeamMailbox(jobId: string, after?: number | string): Promise<TeamMailboxMessage[]> {
     const job = await this.getJob(jobId);
     if (job.mode !== 'team') {
       throw new BadRequestException('not a team job');
     }
 
     const state = this.extractJobTeamState(job);
-    return normalizeTeamMailbox(state.mailbox);
+    const normalizedMailbox = normalizeTeamMailbox(state.mailbox);
+    const normalizedAfter = (() => {
+      if (typeof after === 'number' && Number.isFinite(after)) {
+        return Math.max(0, Math.floor(after));
+      }
+      if (typeof after === 'string' && after.trim().length > 0) {
+        const parsed = Number(after);
+        if (Number.isFinite(parsed)) {
+          return Math.max(0, Math.floor(parsed));
+        }
+      }
+      return undefined;
+    })();
+
+    if (typeof normalizedAfter !== 'number') {
+      return normalizedMailbox;
+    }
+
+    return normalizedMailbox.filter((message) => typeof message.sequence === 'number' && message.sequence > normalizedAfter);
   }
 
   async sendTeamMailboxMessage(jobId: string, message: Record<string, unknown>): Promise<TeamMailboxMessage> {
@@ -576,21 +975,32 @@ export class JobsService {
     }
 
     const currentState = this.extractJobTeamState(job);
-    const normalized = normalizeTeamMailboxMessage(message, currentState.mailbox?.length ?? 0);
+    const mailbox = normalizeTeamMailbox(currentState.mailbox);
+    const normalized = normalizeTeamMailboxMessage(message, mailbox.length);
     if (!normalized) {
       throw new BadRequestException('Invalid mailbox message payload');
     }
 
+    const nextSequence = mailbox.reduce((next, entry) => {
+      const candidate = typeof entry.sequence === 'number' && Number.isFinite(entry.sequence) ? entry.sequence : -1;
+      return candidate > next ? candidate : next;
+    }, 0) + 1;
+
+    const nextMessage: TeamMailboxMessage = {
+      ...normalized,
+      id: normalized.id || randomMailboxMessageId(),
+      sequence: typeof normalized.sequence === 'number'
+        ? Math.max(0, Math.floor(normalized.sequence))
+        : nextSequence,
+      delivered: false,
+      deliveredAt: null,
+    };
+
     const nextState: TeamRunState = {
       ...currentState,
       mailbox: [
-        ...normalizeTeamMailbox(currentState.mailbox),
-        {
-          ...normalized,
-          id: normalized.id || randomMailboxMessageId(),
-          delivered: false,
-          deliveredAt: null,
-        },
+        ...mailbox,
+        nextMessage,
       ],
     };
 
@@ -601,7 +1011,7 @@ export class JobsService {
       to: normalized.to,
       message: normalized.message,
     });
-    return normalized;
+    return nextMessage;
   }
 
   async listRecentEvents(jobId: string, take = 100) {
@@ -715,11 +1125,34 @@ export class JobsService {
     const current = await this.getJob(jobId);
     const jobOptions = asRecord(current.options);
     const team = asRecord(jobOptions.team);
-    const teamState = asRecord(team.state);
+    const extractedTeamState = current.mode === 'team' ? this.extractJobTeamState(current) : undefined;
 
     if (action === 'cancel') {
       if (TERMINAL_STATUSES.includes(current.status)) {
         throw new ConflictException('Job is already in a terminal state');
+      }
+
+      if (current.mode === 'team') {
+        const preserveForResume = typeof extractedTeamState?.cancel?.preserveForResume === 'boolean'
+          ? extractedTeamState.cancel.preserveForResume
+          : true;
+        const nextTeamState = withTeamPipelineMetadata(
+          {
+            ...(extractedTeamState ?? defaultTeamState(team)),
+            status: 'canceled',
+            approvalTaskId: null,
+            currentTaskId: null,
+            cancel: {
+              requested: true,
+              requestedAt: new Date().toISOString(),
+              preserveForResume,
+            },
+          },
+          jobId,
+          'cancelled',
+          'action.cancel',
+        );
+        await this.persistTeamState(jobId, nextTeamState);
       }
 
       const updated = await this.store.updateJob(jobId, {
@@ -735,13 +1168,38 @@ export class JobsService {
         throw new ConflictException('Only terminal or approval-pending jobs can be resumed');
       }
 
+      if (
+        current.status === 'canceled'
+        && extractedTeamState?.cancel?.requested === true
+        && extractedTeamState.cancel.preserveForResume === false
+      ) {
+        throw new ConflictException('Resume is blocked because preserveForResume is false');
+      }
+
       const jobOptions = asRecord(current.options);
       const team = asRecord(jobOptions.team);
-      const updatedState = current.mode === 'team' ? team.state : undefined;
+      const baseTeamState = extractedTeamState ?? defaultTeamState(team);
       const nextState =
-        current.mode === 'team' && updatedState && asRecord(updatedState).status
-          ? ({ ...asRecord(updatedState), status: 'queued' } as Record<string, unknown>)
-          : updatedState;
+          current.mode === 'team'
+          ? withTeamPipelineMetadata(
+              {
+                ...baseTeamState,
+                status: 'queued',
+                approvalTaskId: null,
+                currentTaskId: null,
+                cancel: {
+                  requested: false,
+                  requestedAt: null,
+                  preserveForResume: typeof extractedTeamState?.cancel?.preserveForResume === 'boolean'
+                    ? extractedTeamState.cancel.preserveForResume
+                  : true,
+                },
+              },
+              jobId,
+              getAllowedTeamTransitionEvent(baseTeamState, 'plan_ready'),
+              'action.resume',
+            )
+          : undefined;
 
       const updated = await this.store.updateJob(jobId, {
         status: 'queued',
@@ -763,18 +1221,35 @@ export class JobsService {
     }
 
     if (action === 'approve') {
+      const resumedState =
+        current.mode === 'team'
+          ? withTeamPipelineMetadata(
+              {
+                ...(extractedTeamState ?? defaultTeamState(team)),
+                status: 'queued',
+                approvalTaskId: null,
+                currentTaskId: null,
+                cancel: {
+                  requested: false,
+                  requestedAt: null,
+                  preserveForResume: typeof extractedTeamState?.cancel?.preserveForResume === 'boolean'
+                    ? extractedTeamState.cancel.preserveForResume
+                    : true,
+                },
+              },
+              jobId,
+              getAllowedTeamTransitionEvent(extractedTeamState ?? defaultTeamState(team), 'verification_resumed'),
+              'action.approve',
+            )
+          : undefined;
+
       const nextOptions =
         current.mode === 'team'
           ? ({
               ...jobOptions,
               team: {
                 ...team,
-                state: {
-                  ...teamState,
-                  status: 'queued',
-                  approvalTaskId: null,
-                  currentTaskId: null,
-                },
+                state: resumedState,
               },
             } as Record<string, unknown>)
           : jobOptions;
@@ -796,7 +1271,12 @@ export class JobsService {
       finishedAt: new Date().toISOString(),
     });
     await this.addEvent(jobId, 'approval', 'Approval rejected');
-    await this.rewindTeamStateForApproval(jobId, current.mode === 'team' ? this.extractJobTeamState(current) : undefined);
+    if (current.mode === 'team') {
+      await this.rewindTeamStateForApproval(
+        jobId,
+        current.mode === 'team' ? this.extractJobTeamState(current) : undefined,
+      );
+    }
     return updated;
   }
 
@@ -823,34 +1303,40 @@ export class JobsService {
       throw new ConflictException('Task is not currently awaiting approval');
     }
 
-    await this.updateTeamTaskState(jobId, (state) => ({
-      ...state,
-      approvalTaskId: null,
-      status: action === 'approve' ? 'queued' : 'failed',
-      currentTaskId: null,
-      tasks: state.tasks.map((task) => {
-        if (task.id !== taskId) {
-          return task;
-        }
+    await this.updateTeamTaskState(
+      jobId,
+      (state) => ({
+        ...state,
+        approvalTaskId: null,
+        status: action === 'approve' ? 'queued' : 'failed',
+        currentTaskId: null,
+        tasks: state.tasks.map((task) => {
+          if (task.id !== taskId) {
+            return task;
+          }
 
-        if (action === 'approve') {
+          if (action === 'approve') {
+            return {
+              ...task,
+              requiresApproval: false,
+              status: task.status === 'failed' || task.status === 'canceled' ? 'queued' : ('queued' as TeamTaskStatus),
+              error: undefined,
+            };
+          }
+
           return {
             ...task,
             requiresApproval: false,
-            status: task.status === 'failed' || task.status === 'canceled' ? 'queued' : ('queued' as TeamTaskStatus),
-            error: undefined,
+            status: 'failed' as TeamTaskStatus,
+            error: 'Task output rejected by approver',
+            finishedAt: new Date().toISOString(),
           };
-        }
-
-        return {
-          ...task,
-          requiresApproval: false,
-          status: 'failed' as TeamTaskStatus,
-          error: 'Task output rejected by approver',
-          finishedAt: new Date().toISOString(),
-        };
+        }),
       }),
-    }));
+      action === 'approve'
+        ? getAllowedTeamTransitionEvent(teamState, 'verification_resumed')
+        : getAllowedTeamTransitionEvent(teamState, 'failed'),
+    );
 
     if (action === 'approve') {
       const updated = await this.store.updateJob(jobId, {
@@ -894,33 +1380,67 @@ export class JobsService {
       currentTaskId: null,
     } as TeamRunState;
 
-    await this.persistTeamState(jobId, updatedState);
+    await this.persistTeamState(
+      jobId,
+      withTeamPipelineMetadata(
+        updatedState,
+        jobId,
+        getAllowedTeamTransitionEvent(currentState, 'verification_required'),
+        'rewind-for-approval',
+      ),
+    );
   }
 
-  async persistTeamState(jobId: string, nextState: TeamRunState) {
+  async persistTeamState(
+    jobId: string,
+    nextState: TeamRunState,
+    transitionEvent?: TeamPipelineTransitionEvent,
+    reason?: string,
+    expectedStateVersion?: number,
+  ) {
     const job = await this.getJob(jobId);
     const options = asRecord(job.options);
     const team = asRecord(options.team);
-    const merged = { ...options, team: { ...team, state: nextState } };
+    const previousStateVersion = normalizeNumericValue(asRecord(team.state).stateVersion, 0);
+    const normalizedExpectedStateVersion = typeof expectedStateVersion === 'number' ? Math.max(0, Math.floor(expectedStateVersion)) : undefined;
+    if (typeof normalizedExpectedStateVersion === 'number' && previousStateVersion !== normalizedExpectedStateVersion) {
+      throw new ConflictException(
+        `Team state version mismatch: expected ${normalizedExpectedStateVersion}, current ${previousStateVersion}`,
+      );
+    }
+    const mergedState = withTeamPipelineMetadata(nextState, jobId, transitionEvent, reason);
+    const normalizedNextStateVersion = normalizeNumericValue(mergedState.stateVersion, previousStateVersion);
+    const merged = {
+      ...options,
+      team: {
+        ...team,
+        state: {
+          ...mergedState,
+          schemaVersion: TEAM_PIPELINE_STATE_SCHEMA_VERSION,
+          stateVersion: normalizedNextStateVersion + 1,
+        } as Record<string, unknown>,
+      },
+    };
     await this.store.updateJob(jobId, { options: merged as Record<string, unknown> });
   }
 
-  extractJobTeamState(job: { options: unknown }): TeamRunState {
+  extractJobTeamState(job: { options: unknown; id?: string }): TeamRunState {
     const options = asRecord(job.options);
     const team = asRecord(options.team);
     const state = asRecord(team.state);
     const base = defaultTeamState(team as Record<string, unknown>);
-    return {
+    return withTeamPipelineMetadata({
       ...base,
       ...state,
       mailbox: normalizeTeamMailbox(state.mailbox),
       tasks: Array.isArray(state.tasks) ? (state.tasks as TeamTaskState[]) : base.tasks,
-    };
+    }, typeof job.id === 'string' && job.id.trim() ? job.id : 'legacy');
   }
 
   async updateTeamTaskState(
     jobId: string,
     updater: (state: TeamRunState) => TeamRunState,
+    transitionEvent?: TeamPipelineTransitionEvent,
   ): Promise<TeamRunState> {
     const job = await this.getJob(jobId);
     if (job.mode !== 'team') {
@@ -941,7 +1461,7 @@ export class JobsService {
       phase: toTeamTaskPhase(state.tasks),
     });
     next.phase = toTeamTaskPhase(next.tasks);
-    const normalized = {
+    const normalized = withTeamPipelineMetadata({
       ...next,
       tasks: next.tasks.map((task) => {
         const depsSatisfied = task.status !== 'queued' ? false : isTaskDependenciesSatisfied(task, next.tasks);
@@ -953,7 +1473,7 @@ export class JobsService {
           attempt: task.attempt,
         };
       }),
-    };
+    }, jobId, transitionEvent, 'state.task_update');
 
     await this.persistTeamState(jobId, normalized);
     return normalized;

@@ -2,15 +2,19 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const children = [];
 let shuttingDown = false;
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function spawnProcess(name, args) {
   const child = spawn('npm', args, {
     env: {
       ...process.env,
-      OMX_STATE_ROOT: process.env.OMX_STATE_ROOT ?? path.resolve(process.cwd(), '.omx', 'state', 'jobs'),
+      A_TEAM_STATE_ROOT: process.env.A_TEAM_STATE_ROOT
+        ? path.resolve(PROJECT_ROOT, process.env.A_TEAM_STATE_ROOT)
+        : path.resolve(PROJECT_ROOT, '.a-team', 'state', 'jobs'),
     },
     stdio: 'inherit',
   });

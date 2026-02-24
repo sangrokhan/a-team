@@ -21,20 +21,20 @@ class FakeQueueService extends QueueService {
 }
 
 function createTempStateRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'omx-api-state-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'a-team-api-state-'));
 }
 
 async function createService(stateRoot: string) {
   const queue = new FakeQueueService();
-  const previousStateRoot = process.env.OMX_STATE_ROOT;
-  process.env.OMX_STATE_ROOT = stateRoot;
+  const previousStateRoot = process.env.A_TEAM_STATE_ROOT;
+  process.env.A_TEAM_STATE_ROOT = stateRoot;
 
   const service = new JobsService(queue as unknown as QueueService);
   return {
     service,
     queue,
     restore: () => {
-      process.env.OMX_STATE_ROOT = previousStateRoot;
+    process.env.A_TEAM_STATE_ROOT = previousStateRoot;
     },
   };
 }

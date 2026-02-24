@@ -67,11 +67,10 @@ afterEach(() => {
 });
 
 describe('JobsController', () => {
-  test('supports both jobs and runs base paths', () => {
+  test('supports jobs base path only', () => {
     const paths = Reflect.getMetadata(PATH_METADATA, JobsController);
-    assert.equal(Array.isArray(paths), true);
-    assert.equal(paths.includes('jobs'), true);
-    assert.equal(paths.includes('runs'), true);
+    assert.equal(Array.isArray(paths) ? paths.includes('jobs') : paths === 'jobs', true);
+    assert.equal(Array.isArray(paths) ? paths.includes('runs') : paths === 'runs', false);
   });
 
   test('create calls service and returns id/status', async () => {

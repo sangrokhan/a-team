@@ -64,11 +64,35 @@ body {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+  flex-wrap: wrap;
   padding: 1rem 1.1rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
   backdrop-filter: blur(8px);
+}
+
+.top-nav {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.top-nav-link {
+  border: 1px solid rgba(156, 192, 226, 0.35);
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 0.2rem 0.6rem;
+  text-decoration: none;
+  font-size: 0.79rem;
+  font-weight: 600;
+}
+
+.top-nav-link.active,
+.top-nav-link:hover {
+  color: var(--text);
+  border-color: rgba(92, 224, 190, 0.65);
 }
 
 .eyebrow {
@@ -167,6 +191,95 @@ button:hover {
   margin: 0;
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.history-filters {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem 0.8rem;
+}
+
+.history-filters label {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.history-filters select,
+.history-filters button,
+.form-actions .ghost {
+  width: 100%;
+}
+
+.history-detail-grid {
+  margin-top: 0.7rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.history-detail-grid pre,
+.history-detail-grid .events {
+  max-height: 320px;
+}
+
+.form-actions .ghost {
+  background: transparent;
+  border: 1px dashed rgba(156, 192, 226, 0.45);
+}
+
+.job-form {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem 0.8rem;
+}
+
+.job-form label {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.job-form label span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.job-form input,
+.job-form select,
+.job-form textarea {
+  width: 100%;
+  color: var(--text);
+  font: inherit;
+  background: rgba(5, 12, 20, 0.75);
+  border: 1px solid rgba(156, 192, 226, 0.35);
+  border-radius: 9px;
+  padding: 0.45rem 0.55rem;
+}
+
+.job-form .full-row {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+#create-job-status {
+  min-height: 1.2rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+#create-job-status.error {
+  color: var(--danger);
+}
+
+#create-job-status.ok {
+  color: var(--accent);
 }
 
 .table-wrap {
@@ -334,7 +447,9 @@ pre {
   }
 
   .split,
-  .drill-grid {
+  .drill-grid,
+  .history-filters,
+  .history-detail-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -349,4 +464,3 @@ pre {
     align-items: stretch;
   }
 }
-

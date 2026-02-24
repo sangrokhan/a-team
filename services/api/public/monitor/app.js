@@ -20,6 +20,10 @@ const elements = {
   selectedJobLabel: document.getElementById('selected-job-label'),
   teamStateView: document.getElementById('team-state-view'),
   eventsList: document.getElementById('events-list'),
+  createJobForm: document.getElementById('create-job-form'),
+  createJobTask: document.getElementById('job-command'),
+  createJobSubmit: document.getElementById('create-job-submit'),
+  createJobStatus: document.getElementById('create-job-status'),
 };
 
 const state = {
@@ -64,6 +68,23 @@ async function readJson(url) {
     throw new Error(`Request failed: ${response.status}`);
   }
   return response.json();
+}
+
+function setCreateJobStatus(message, isError = false) {
+  if (!elements.createJobStatus) return;
+  elements.createJobStatus.textContent = message;
+  elements.createJobStatus.classList.toggle('error', isError);
+  elements.createJobStatus.classList.toggle('ok', !isError);
+}
+
+function normalizeText(value) {
+  return (value ?? '').toString().trim();
+}
+
+function clearCreateJobStatus() {
+  if (!elements.createJobStatus) return;
+  elements.createJobStatus.textContent = '';
+  elements.createJobStatus.classList.remove('error', 'ok');
 }
 
 function setRefreshNote(message) {
@@ -297,12 +318,62 @@ async function selectJob(jobId) {
   connectEvents(jobId);
 }
 
+async function handleCreateJobSubmit(event) {
+  event.preventDefault();
+  if (!elements.createJobForm) return;
+
+  const payload = {
+    provider: 'codex',
+    mode: 'team',
+    task: normalizeText(elements.createJobTask.value),
+    options: {
+      searchMode: true,
+    },
+  };
+
+  if (!payload.task) {
+    setCreateJobStatus('모든 필드를 입력해 주세요.', true);
+    return;
+  }
+
+  try {
+    elements.createJobSubmit.disabled = true;
+    setCreateJobStatus('요청 전송 중...');
+    const response = await fetch('/v1/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorMessage = await response.text();
+      throw new Error(errorMessage || `Request failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    setCreateJobStatus(`Job created: ${result.jobId}`, false);
+    await refreshOverview();
+    if (result.jobId) {
+      await selectJob(result.jobId);
+    }
+  } catch (error) {
+    setCreateJobStatus(error.message || 'Job 생성 요청에 실패했습니다.', true);
+  } finally {
+    elements.createJobSubmit.disabled = false;
+  }
+}
+
 elements.refreshNow.addEventListener('click', () => {
   refreshOverview();
   if (state.selectedJobId) {
     refreshTeamSnapshot(state.selectedJobId);
   }
 });
+
+if (elements.createJobForm) {
+  elements.createJobForm.addEventListener('submit', handleCreateJobSubmit);
+  elements.createJobForm.addEventListener('input', () => clearCreateJobStatus());
+}
 
 setInterval(() => {
   if (!elements.autoRefresh.checked) return;
@@ -317,4 +388,3 @@ setInterval(() => {
 window.addEventListener('beforeunload', () => disconnectEvents());
 
 refreshOverview();
-
