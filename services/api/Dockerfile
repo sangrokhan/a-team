@@ -3,7 +3,9 @@ WORKDIR /app
 
 COPY package.json tsconfig.base.json ./
 COPY bin ./bin
-COPY config ./config
+COPY agents ./agents
+COPY prompts ./prompts
+COPY skills ./skills
 COPY scripts ./scripts
 COPY services/api/package.json ./services/api/package.json
 COPY services/worker/package.json ./services/worker/package.json
@@ -26,7 +28,9 @@ RUN apk add --no-cache bash ca-certificates openssh && update-ca-certificates
 
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/config ./config
+COPY --from=builder /app/agents ./agents
+COPY --from=builder /app/prompts ./prompts
+COPY --from=builder /app/skills ./skills
 COPY --from=builder /app/services/api/package.json ./services/api/package.json
 COPY --from=builder /app/services/api/dist ./services/api/dist
 COPY --from=builder /app/services/api/public ./services/api/public

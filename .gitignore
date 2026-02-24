@@ -218,3 +218,10 @@ services/*/dist/
 
 # Local orchestrator runtime state
 .omx/
+
+# a-team runtime state
+.a-team/
+.a-team/state/
+
+# Local a-team runtime state
+a-team/state/

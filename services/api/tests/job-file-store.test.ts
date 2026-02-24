@@ -15,7 +15,7 @@ type CreateInput = {
 };
 
 function tempStateRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'omx-api-store-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'a-team-api-store-'));
 }
 
 describe('api JobFileStore', () => {
@@ -23,7 +23,7 @@ describe('api JobFileStore', () => {
 
   beforeEach(() => {
     stateRoot = tempStateRoot();
-    process.env.OMX_STATE_ROOT = stateRoot;
+    process.env.A_TEAM_STATE_ROOT = stateRoot;
   });
 
   afterEach(() => {
@@ -138,8 +138,8 @@ describe('api JobFileStore', () => {
   });
 
   test('uses repository state root when env override is absent', async () => {
-    const previousRoot = process.env.OMX_STATE_ROOT;
-    delete process.env.OMX_STATE_ROOT;
+    const previousRoot = process.env.A_TEAM_STATE_ROOT;
+    delete process.env.A_TEAM_STATE_ROOT;
 
     let current = process.cwd();
     for (let depth = 0; depth < 8; depth += 1) {
@@ -167,17 +167,17 @@ describe('api JobFileStore', () => {
       'none',
     );
 
-    const recordPath = path.join(current, '.omx', 'state', 'jobs', created.id, 'record.json');
+    const recordPath = path.join(current, '.a-team', 'state', 'jobs', created.id, 'record.json');
     const exists = existsSync(recordPath);
     assert.equal(exists, true);
     assert.equal((await store.findJobById(created.id))?.id, created.id);
 
     if (previousRoot === undefined) {
-      delete process.env.OMX_STATE_ROOT;
+      delete process.env.A_TEAM_STATE_ROOT;
     } else {
-      process.env.OMX_STATE_ROOT = previousRoot;
+      process.env.A_TEAM_STATE_ROOT = previousRoot;
     }
-    rmSync(path.join(current, '.omx', 'state', 'jobs', created.id), { recursive: true, force: true });
+    rmSync(path.join(current, '.a-team', 'state', 'jobs', created.id), { recursive: true, force: true });
   });
 
   test('returns null when record payload is invalid JSON shape', async () => {

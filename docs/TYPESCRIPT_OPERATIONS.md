@@ -1,42 +1,53 @@
 # TypeScript 운영 가이드
 
+## 기준 정합
+
+- 팀 모드 운영의 기준 문서 체인은 다음이다:
+  - `docs/DECISIONS.md`
+  - `docs/REFERENCE_TEAM_WORKFLOW.md`
+  - `docs/CODEX_TEAM_IMPLEMENTATION_SPEC.md`
+  - `docs/CODEX_TEAM_WORKFLOW.md`
+- 실행/저장 기준:
+  - 상태: `/v1/jobs` 표준 API + `/a-team/state/jobs/<job-id>`
+  - 종료/중단 용어: `succeeded` / `failed` / `canceled`
+- 레퍼런스 단계명(`team-plan` 등)은 단계 가이드이며, 현재 실행은 `transition event`(`plan_ready`, `tasks_started`, `verification_required`, `verification_resumed`, `fix_attempt`, `complete`, `failed`, `cancelled`) 기반으로 `pipelinePhase`를 동기화하고, task/run 상태로 제어한다.
+
 ## 기준
 - Node.js: 20+
 - API: `services/api`
 - Worker: `services/worker`
-- 상태 저장: 파일 기반 (`.omx/state/jobs`)
-- Queue: `REDIS_URL` 설정 시 Redis + BullMQ, 미설정 시 파일 큐(`.omx/state/jobs/.queue`)
+- 상태 저장: 파일 기반 (`.a-team/state/jobs`)
+- Queue: `REDIS_URL` 설정 시 Redis + BullMQ, 미설정 시 파일 큐(`.a-team/state/jobs/.queue`)
 
 ## 설치/실행
 ```bash
 npm install
 cp .env.example .env
-PORT=8080 OMX_STATE_ROOT=$PWD/.omx/state/jobs npm run dev:local
+PORT=8080 A_TEAM_STATE_ROOT=$PWD/.a-team/state/jobs npm run dev:local
 ```
 또는 `.env`를 로드해서 실행:
 ```bash
-export OMX_STATE_ROOT=$PWD/.omx/state/jobs
+export A_TEAM_STATE_ROOT=$PWD/.a-team/state/jobs
 npm run dev:local
 ```
-`npm install` 시 `postinstall`로 `setup-cli-paths`가 실행되어
-`~/.codex|~/.claude|~/.gemini`의 `agents/skills`를
-리포지토리 `config/cli/agents`, `config/cli/skills`로 연결합니다.
+`npm install` 시 `postinstall`로 `setup`이 실행되어
+`~/.a-team`를 초기화하고 `~/.codex`, `~/.claude` 경로를 바인딩합니다.
 
 ## CLI 설치 훅/실행 구조
-- 공용 엔트리: `bin/dev-crew.mjs`
-- 실행파일 기반 단축 엔트리: `bin/dev-crew-setup-cli-paths.mjs`
+- 공용 엔트리: `bin/a-team.mjs`
 - 디스패처: `scripts/bin/dispatch.mjs`
-- 경로 설정 로직: `scripts/setup-cli-paths.mjs`
 
 수동 실행:
 ```bash
-npm run setup:cli-paths
-npm run setup:cli-paths:dry-run
-node ./bin/dev-crew.mjs setup-cli-paths --strict
+node ./bin/a-team.mjs setup
+```
+모든 실행 구성요소(backend + worker + 모니터 UI)을 함께 띄우려면:
+```bash
+a-team run --port 8080
 ```
 
 ## 주요 환경변수
-- `OMX_STATE_ROOT`
+- `A_TEAM_STATE_ROOT`
 - `REDIS_URL` (Redis 큐 사용 시)
 - `PORT`
 - `API_PORT` (docker compose host publish port, default `8080`)
@@ -50,13 +61,6 @@ node ./bin/dev-crew.mjs setup-cli-paths --strict
 - `JOB_DEVELOPER_CMD`
 - `JOB_EXECUTOR_CMD`
 - `JOB_VERIFIER_CMD`
-- `DEV_CREW_SKIP_CLI_PATH_SETUP` (`1|true`면 postinstall 경로 설정 스킵)
-- `DEV_CREW_CODEX_HOME` (기본 `~/.codex`)
-- `DEV_CREW_CLAUDE_HOME` (기본 `~/.claude`)
-- `DEV_CREW_GEMINI_HOME` (기본 `~/.gemini`)
-- `DEV_CREW_SHARED_AGENTS_DIR` (기본 `config/cli/agents`)
-- `DEV_CREW_SHARED_SKILLS_DIR` (기본 `config/cli/skills`)
-
 Team mode( `mode: "team"` )에서 추가로 사용하는 값:
 - `options.team.parallelTasks`
 - `options.team.maxFixAttempts`
@@ -76,8 +80,9 @@ Team 모드(`mode: "team"`)는 현재 `planner/researcher/designer/developer/exe
 
 ## 호스트 실행
 ```bash
-PORT=8080 OMX_STATE_ROOT=$PWD/.omx/state/jobs npm run dev:local
+PORT=8080 A_TEAM_STATE_ROOT=$PWD/.a-team/state/jobs npm run dev:local
 ```
+모니터 페이지 기본 주소: `http://localhost:8080/monitor/`
 
 중지: `Ctrl+C`
 

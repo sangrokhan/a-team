@@ -1,4 +1,4 @@
-# dev-crew (TypeScript)
+# a-team (TypeScript)
 
 TypeScript/NestJS + BullMQ + 파일 기반 실행 이력 저장소 기반 작업 오케스트레이션 서버입니다.
 현재 루트 기준 운영 경로는 npm 워크스페이스(`services/api`, `services/worker`)입니다.
@@ -8,7 +8,7 @@ TypeScript/NestJS + BullMQ + 파일 기반 실행 이력 저장소 기반 작업
 - TypeScript 5
 - NestJS (API)
 - BullMQ + Redis (기본 큐) 또는 `REDIS_URL` 미설정 시 파일 큐 폴백
-- `.omx/state/jobs` 파일 기반 저장소 (`record.json`, `events.jsonl`)
+- `.a-team/state/jobs` 파일 기반 저장소 (`record.json`, `events.jsonl`)
 - tmux (멀티 패널 실행)
 
 ## Quick Start
@@ -16,8 +16,16 @@ TypeScript/NestJS + BullMQ + 파일 기반 실행 이력 저장소 기반 작업
 ```bash
 npm install
 ```
-`npm install` 시 `postinstall`에서 CLI 경로 바인딩을 자동 실행합니다.
-(`~/.codex`, `~/.claude`, `~/.gemini`의 `agents/skills` -> `config/cli/*`)
+`npm install` 시 `postinstall`에서 `a-team setup`을 자동 실행해
+`~/.a-team` 초기화 및 `~/.codex`, `~/.claude` 경로 바인딩을 수행합니다.
+필요 시 사용자 홈 기준 초기화 폴더를 생성하려면 아래 명령을 실행하세요.
+```bash
+node ./bin/a-team.mjs setup
+```
+또는:
+```bash
+npm run setup:home
+```
 
 2. 환경 변수
 ```bash
@@ -29,10 +37,16 @@ cp .env.example .env
 PORT=8080 npm run dev:local
 ```
 
+또는 `a-team` 단일 명령으로 실행하려면:
+```bash
+a-team run
+```
+`/monitor` 화면이 `http://localhost:18080/monitor/`로 열려 팀 상태를 실시간 확인할 수 있습니다.
+
 `api`와 `worker`가 하나의 터미널에서 동시에 실행됩니다. `REDIS_URL`은 큐 동기화 전용이며,
-작업 상태는 `.omx/state/jobs` 아래 파일로 저장됩니다.
+작업 상태는 `.a-team/state/jobs` 아래 파일로 저장됩니다.
 기본 `PORT=8080` 기준으로 `localhost:8080`에서 API가 기동됩니다.
-`REDIS_URL`이 없으면 API/Worker가 파일 큐(`.omx/state/jobs/.queue`)로 동작합니다.
+`REDIS_URL`이 없으면 API/Worker가 파일 큐(`.a-team/state/jobs/.queue`)로 동작합니다.
 
 ## 실행 가이드(운영 실무형)
 
@@ -55,7 +69,7 @@ PORT=8080 npm run dev:local
 
 실행 효과
 - API: `http://localhost:8080`
-- Worker: `.omx/state/jobs` 기반 큐 사용(Redis 미설정 시)
+- Worker: `.a-team/state/jobs` 기반 큐 사용(Redis 미설정 시)
 - `/v1/jobs`로 작업 등록 후 내부 orchestration 수행
 
 ### 3) 팀(Task 분할) 모드 실행
@@ -101,8 +115,8 @@ curl -s -X POST http://localhost:8080/v1/jobs/{jobId}/actions/resume
 ### 4) 실행 중 모니터링
 
 - 팀 상태 파일:
-  - `.omx/state/jobs/<job-id>/record.json` (`job.options.team.state` 포함)
-  - `.omx/state/jobs/<job-id>/events.jsonl`
+  - `.a-team/state/jobs/<job-id>/record.json` (`job.options.team.state` 포함)
+  - `.a-team/state/jobs/<job-id>/events.jsonl`
 - API 이벤트: `/v1/jobs/{jobId}/events`
 - 팀 mailbox API:
   - `GET /v1/jobs/{jobId}/team/mailbox`
@@ -110,7 +124,7 @@ curl -s -X POST http://localhost:8080/v1/jobs/{jobId}/actions/resume
 - 모니터 개요 API: `/v1/monitor/overview`
 - 웹 모니터 페이지: `http://localhost:8080/monitor/`
 - 검증 체크 기준:
-  - `pending=0`, `blocked=0`, `in_progress=0`
+  - `queued=0`, `running=0`, `blocked=0`
   - verify 통과
   - 허용 실패 정책 충족
 
@@ -123,8 +137,8 @@ tmux kill-session -t <session-name>
 ```
 - 작업 잔존 상태 정리(옵션):
 ```bash
-rm -rf .omx/state/jobs/<job-id>
-rm -rf .omx/state/jobs
+rm -rf .a-team/state/jobs/<job-id>
+rm -rf .a-team/state/jobs
 ```
 
 > 파일 기반 모드는 복구/재시작에 유리합니다.  
@@ -179,29 +193,27 @@ curl -s -X POST http://localhost:8080/v1/jobs/{jobId}/actions/resume
 ```
 
 ## CLI Bin 구조
-- `bin/dev-crew.mjs`: 공용 CLI 엔트리
-- `bin/dev-crew-setup-cli-paths.mjs`: 실행 파일명 기반 단축 엔트리
+- `bin/a-team.mjs`: 공용 CLI 엔트리
 - `scripts/bin/dispatch.mjs`: 실행 파일명/서브커맨드 디스패처
-- `scripts/setup-cli-paths.mjs`: codex/claude/gemini 경로 바인딩 로직
+- `scripts/setup-a-team-home.mjs`: `~/.a-team` 초기화 및 `~/.codex`, `~/.claude` 경로 바인딩
 
-경로 바인딩 수동 실행:
+공용 CLI 데이터 경로:
+이 디렉터리는 `codex`, `claude` CLI가 사용할 공용 데이터(현재 `prompts`, `skills`) 소스입니다.  
+`a-team setup` 실행 시 홈 경로로 동기화되어 아래 경로로 바인딩됩니다.
+
+- `~/.codex/prompts` -> `prompts`
+- `~/.claude/agents` -> `prompts`
+- `~/.codex/skills` -> `skills`
+- `~/.claude/skills` -> `skills`
+
+수동 실행:
 ```bash
-npm run setup:cli-paths
-npm run setup:cli-paths:dry-run
-node ./bin/dev-crew.mjs setup-cli-paths --strict
+node ./bin/a-team.mjs setup
 ```
 
-경로 바인딩 제어 환경변수:
-- `DEV_CREW_SKIP_CLI_PATH_SETUP=1` (postinstall 자동 바인딩 비활성화)
-- `DEV_CREW_CODEX_HOME`
-- `DEV_CREW_CLAUDE_HOME`
-- `DEV_CREW_GEMINI_HOME`
-- `DEV_CREW_SHARED_AGENTS_DIR` (기본: `config/cli/agents`)
-- `DEV_CREW_SHARED_SKILLS_DIR` (기본: `config/cli/skills`)
-
 ## Scripts
-- `npm run setup:cli-paths`
-- `npm run setup:cli-paths:dry-run`
+- `npm run setup:home`
+- `npm run run`
 - `npm run dev:local`
 - `npm run dev:api`
 - `npm run dev:worker`
@@ -219,7 +231,8 @@ API_PORT=18080 npm run docker:up
 ## Directory
 ```text
 bin/          # CLI 실행 파일 엔트리
-config/       # 공용 CLI agents/skills 경로
+prompts/     # 공용 CLI prompts 경로
+skills/      # 공용 CLI skills 경로
 scripts/      # CLI 디스패처/설정 스크립트
 services/
   api/        # NestJS API

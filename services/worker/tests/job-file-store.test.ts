@@ -15,7 +15,7 @@ type CreateInput = {
 };
 
 function tempStateRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'omx-worker-store-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'a-team-worker-store-'));
 }
 
 describe('worker JobFileStore', () => {
@@ -23,7 +23,7 @@ describe('worker JobFileStore', () => {
 
   beforeEach(() => {
     stateRoot = tempStateRoot();
-    process.env.OMX_STATE_ROOT = stateRoot;
+    process.env.A_TEAM_STATE_ROOT = stateRoot;
   });
 
   afterEach(() => {
@@ -116,8 +116,8 @@ describe('worker JobFileStore', () => {
   });
 
   test('creates job using discovered repository state root when env override is absent', async () => {
-    const previousRoot = process.env.OMX_STATE_ROOT;
-    delete process.env.OMX_STATE_ROOT;
+    const previousRoot = process.env.A_TEAM_STATE_ROOT;
+    delete process.env.A_TEAM_STATE_ROOT;
 
     let current = process.cwd();
     for (let depth = 0; depth < 8; depth += 1) {
@@ -145,16 +145,16 @@ describe('worker JobFileStore', () => {
       'none',
     );
 
-    const recordPath = path.join(current, '.omx', 'state', 'jobs', created.id, 'record.json');
+    const recordPath = path.join(current, '.a-team', 'state', 'jobs', created.id, 'record.json');
     assert.equal(created.id.length > 0, true);
     assert.equal((await store.findJobById(created.id))?.id, created.id);
     assert.equal(existsSync(recordPath), true);
 
     if (previousRoot === undefined) {
-      delete process.env.OMX_STATE_ROOT;
+      delete process.env.A_TEAM_STATE_ROOT;
     } else {
-      process.env.OMX_STATE_ROOT = previousRoot;
+      process.env.A_TEAM_STATE_ROOT = previousRoot;
     }
-    rmSync(path.join(current, '.omx', 'state', 'jobs', created.id), { recursive: true, force: true });
+    rmSync(path.join(current, '.a-team', 'state', 'jobs', created.id), { recursive: true, force: true });
   });
 });

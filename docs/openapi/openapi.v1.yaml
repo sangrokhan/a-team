@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: OMX Web Orchestrator API
+  title: A Team API
   version: 0.1.0
   description: >-
-    Web API to run OMX/OMC-style orchestration jobs through queued workers.
+    Web API to run A Team-style orchestration jobs through queued workers.
 servers:
   - url: http://localhost:8080
 paths:
@@ -43,6 +43,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/MonitorOverview'
   /v1/jobs:
+    get:
+      summary: List orchestration jobs
+      operationId: listJobs
+      parameters:
+        - $ref: '#/components/parameters/JobStatuses'
+        - $ref: '#/components/parameters/JobModes'
+        - $ref: '#/components/parameters/JobLimit'
+        - $ref: '#/components/parameters/UpdatedAfter'
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
     post:
       summary: Create a new orchestration job
       operationId: createJob
@@ -146,6 +163,12 @@ paths:
       operationId: getTeamMailbox
       parameters:
         - $ref: '#/components/parameters/JobId'
+        - name: after
+          in: query
+          description: Return messages with sequence greater than this value
+          schema:
+            type: integer
+            minimum: 0
       responses:
         '200':
           description: Team mailbox snapshot
@@ -205,180 +228,26 @@ paths:
                 example: |
                   event: log
                   data: {"jobId":"...","type":"queued","message":"Job queued"}
-  /v1/runs:
-    post:
-      summary: Create a new orchestration run
-      operationId: createRun
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateJobRequest'
-      responses:
-        '201':
-          description: Run created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateJobResponse'
-  /v1/runs/{runId}:
+  /v1/jobs/{jobId}/events/list:
     get:
-      summary: Get current run state
-      operationId: getRun
+      summary: Get recent job events as JSON
+      operationId: listJobEvents
       parameters:
-        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/EventLimit'
       responses:
         '200':
-          description: Run detail
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /v1/runs/{runId}/actions/{action}:
-    post:
-      summary: Apply an action to a run
-      operationId: runAction
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-        - $ref: '#/components/parameters/JobAction'
-      responses:
-        '200':
-          description: Action accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: Invalid action for current state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /v1/runs/{runId}/team/tasks/{taskId}/actions/{action}:
-    post:
-      summary: Apply approve/reject to a team run task awaiting approval
-      operationId: runTeamTaskAction
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-        - $ref: '#/components/parameters/TaskId'
-        - $ref: '#/components/parameters/TeamTaskAction'
-      responses:
-        '200':
-          description: Task action accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: Invalid action for current task state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /v1/runs/{runId}/team:
-    get:
-      summary: Get normalized team state for team mode run
-      operationId: getRunTeamState
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-      responses:
-        '200':
-          description: Team state snapshot
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TeamState'
-        '400':
-          description: Not a team-mode run
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /v1/runs/{runId}/team/mailbox:
-    get:
-      summary: Get team mailbox messages for team mode run
-      operationId: getRunTeamMailbox
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-      responses:
-        '200':
-          description: Team mailbox snapshot
+          description: Job event list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TeamMailboxMessage'
-        '400':
-          description: Not a team-mode run
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    post:
-      summary: Send a message into team mailbox for rerun/reassignment workflow
-      operationId: sendRunTeamMailboxMessage
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TeamMailboxMessageRequest'
-      responses:
-        '201':
-          description: Mailbox message accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TeamMailboxMessage'
-        '400':
-          description: Invalid payload or not a team-mode run
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /v1/runs/{runId}/events:
-    get:
-      summary: Stream run events with Server-Sent Events
-      operationId: streamRunEvents
-      parameters:
-        - $ref: '#/components/parameters/RunId'
-      responses:
-        '200':
-          description: SSE stream
-          content:
-            text/event-stream:
-              schema:
-                type: string
-                example: |
-                  event: log
-                  data: {"jobId":"...","type":"queued","message":"Run queued"}
-components:
+                  $ref: '#/components/schemas/Event'
+ components:
   parameters:
     JobId:
       name: jobId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    RunId:
-      name: runId
       in: path
       required: true
       schema:
@@ -391,6 +260,41 @@ components:
       schema:
         type: string
         enum: [approve, reject, cancel, resume]
+    JobStatuses:
+      name: statuses
+      in: query
+      required: false
+      description: Comma-separated or repeated job status values.
+      schema:
+        type: string
+        example: queued,running,waiting_approval
+    JobModes:
+      name: modes
+      in: query
+      required: false
+      description: Comma-separated or repeated job modes.
+      schema:
+        type: string
+        example: team,autopilot
+    JobLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of jobs to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 2000
+        default: 200
+    UpdatedAfter:
+      name: updatedAfter
+      in: query
+      required: false
+      description: Only return jobs updated at or after this ISO timestamp.
+      schema:
+        type: string
+        format: date-time
+        example: 2026-02-20T00:00:00.000Z
     TeamTaskAction:
       name: action
       in: path
@@ -398,6 +302,16 @@ components:
       schema:
         type: string
         enum: [approve, reject]
+    EventLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of events to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
     TaskId:
       name: taskId
       in: path
@@ -497,7 +411,20 @@ components:
         extras:
           type: object
           additionalProperties: true
-          description: Reserved extensibility object
+          description: >
+            Reserved extensibility object.
+            For task-level approval automation, use `approvalPolicy`:
+            `mode`(manual|always|conditional), `allowedRoles`, `blockedRoles`,
+            `allowedKeywords`, `blockedKeywords`, `maxRiskScore`.
+            Example:
+              {
+                "approvalPolicy": {
+                  "mode": "conditional",
+                  "allowedRoles": ["researcher", "developer", "executor"],
+                  "blockedKeywords": ["rollback", "delete"],
+                  "maxRiskScore": 60
+                }
+              }
     TeamTaskTemplate:
       type: object
       additionalProperties: false
@@ -542,6 +469,14 @@ components:
           enum: [queued, running, waiting_approval, succeeded, failed, canceled]
         phase:
           type: string
+        pipelinePhase:
+          $ref: '#/components/schemas/TeamPipelinePhase'
+          nullable: true
+        phaseHistory:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TeamPipelinePhaseHistoryEntry'
         fixAttempts:
           type: integer
           minimum: 0
@@ -561,6 +496,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamTask'
+        schemaVersion:
+          type: integer
+          minimum: 0
+        stateVersion:
+          type: integer
+          minimum: 0
         metrics:
           type: object
           nullable: true
@@ -610,6 +551,41 @@ components:
             maxDurationMs:
               type: integer
               minimum: 0
+        execution:
+          $ref: '#/components/schemas/TeamPipelineExecution'
+          nullable: true
+        fixLoop:
+          $ref: '#/components/schemas/TeamFixLoop'
+          nullable: true
+        cancel:
+          $ref: '#/components/schemas/TeamCancelPolicy'
+          nullable: true
+        sessionId:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+          nullable: true
+        iteration:
+          type: integer
+          minimum: 0
+          nullable: true
+        maxIterations:
+          type: integer
+          minimum: 0
+          nullable: true
+        startedAt:
+          type: string
+          nullable: true
+          format: date-time
+        updatedAt:
+          type: string
+          nullable: true
+          format: date-time
+        completedAt:
+          type: string
+          nullable: true
+          format: date-time
         mailbox:
           type: array
           items:
@@ -739,6 +715,9 @@ components:
         createdAt:
           type: string
           format: date-time
+        sequence:
+          type: integer
+          minimum: 0
         deliveredAt:
           type: string
           format: date-time
@@ -1034,3 +1013,84 @@ components:
         maxDurationMs:
           type: integer
           minimum: 0
+    TeamPipelinePhase:
+      type: string
+      enum:
+        - team-plan
+        - team-prd
+        - team-exec
+        - team-verify
+        - team-fix
+        - complete
+        - failed
+        - cancelled
+    TeamPipelinePhaseHistoryEntry:
+      type: object
+      required:
+        - phase
+        - enteredAt
+      properties:
+        phase:
+          $ref: '#/components/schemas/TeamPipelinePhase'
+        enteredAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          nullable: true
+    TeamPipelineExecution:
+      type: object
+      required:
+        - workersTotal
+        - workersActive
+        - tasksTotal
+        - tasksCompleted
+        - tasksFailed
+      properties:
+        workersTotal:
+          type: integer
+          minimum: 0
+        workersActive:
+          type: integer
+          minimum: 0
+        tasksTotal:
+          type: integer
+          minimum: 0
+        tasksCompleted:
+          type: integer
+          minimum: 0
+        tasksFailed:
+          type: integer
+          minimum: 0
+        lastFailureReason:
+          type: string
+          nullable: true
+    TeamFixLoop:
+      type: object
+      required:
+        - attempt
+        - maxAttempts
+      properties:
+        attempt:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 0
+        lastFailureReason:
+          type: string
+          nullable: true
+    TeamCancelPolicy:
+      type: object
+      required:
+        - requested
+        - preserveForResume
+      properties:
+        requested:
+          type: boolean
+        requestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        preserveForResume:
+          type: boolean

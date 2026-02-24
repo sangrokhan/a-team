@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { QueueService } from '../src/queue/queue.service';
 
 function tempStateRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'omx-api-queue-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'a-team-api-queue-'));
 }
 
 describe('QueueService file-mode', () => {
@@ -16,12 +16,12 @@ describe('QueueService file-mode', () => {
 
   beforeEach(() => {
     stateRoot = tempStateRoot();
-    process.env.OMX_STATE_ROOT = stateRoot;
+    process.env.A_TEAM_STATE_ROOT = stateRoot;
     process.env.REDIS_URL = '';
   });
 
   afterEach(() => {
-    delete process.env.OMX_STATE_ROOT;
+    delete process.env.A_TEAM_STATE_ROOT;
     delete process.env.REDIS_URL;
     rmSync(stateRoot, { recursive: true, force: true });
   });
@@ -67,8 +67,8 @@ describe('QueueService file-mode', () => {
   });
 
   test('falls back to repository state root when env override is missing', async () => {
-    const previousRoot = process.env.OMX_STATE_ROOT;
-    delete process.env.OMX_STATE_ROOT;
+    const previousRoot = process.env.A_TEAM_STATE_ROOT;
+    delete process.env.A_TEAM_STATE_ROOT;
     const previousRedis = process.env.REDIS_URL;
 
     try {
@@ -78,7 +78,7 @@ describe('QueueService file-mode', () => {
 
       let current = process.cwd();
       for (let depth = 0; depth < 8; depth += 1) {
-        const candidate = path.join(current, '.omx', 'state', 'jobs');
+        const candidate = path.join(current, '.a-team', 'state', 'jobs');
         if (existsSync(candidate)) {
           break;
         }
@@ -90,19 +90,19 @@ describe('QueueService file-mode', () => {
         current = parent;
       }
 
-      if (!existsSync(path.join(current, '.omx', 'state', 'jobs'))) {
+        if (!existsSync(path.join(current, '.a-team', 'state', 'jobs'))) {
         current = process.cwd();
       }
 
-      const defaultRoot = path.join(current, '.omx', 'state', 'jobs', '.queue', 'pending', 'job-file-4.json');
+      const defaultRoot = path.join(current, '.a-team', 'state', 'jobs', '.queue', 'pending', 'job-file-4.json');
       assert.equal(existsSync(defaultRoot), true);
     } finally {
-      const fallbackRoot = path.join(process.cwd(), '.omx', 'state', 'jobs');
+      const fallbackRoot = path.join(process.cwd(), '.a-team', 'state', 'jobs');
       rmSync(fallbackRoot, { recursive: true, force: true });
       if (previousRoot === undefined) {
-        delete process.env.OMX_STATE_ROOT;
+        delete process.env.A_TEAM_STATE_ROOT;
       } else {
-        process.env.OMX_STATE_ROOT = previousRoot;
+        process.env.A_TEAM_STATE_ROOT = previousRoot;
       }
       if (previousRedis === undefined) {
         delete process.env.REDIS_URL;

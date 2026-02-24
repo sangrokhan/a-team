@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dev Crew Monitor</title>
+    <title>A Team</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -12,10 +12,14 @@
     <main class="shell">
       <header class="page-head">
         <div>
-          <p class="eyebrow">OMX Web Orchestrator</p>
-          <h1>Live Monitor</h1>
+          <p class="eyebrow">A Team</p>
+          <h1>A Team</h1>
           <p id="refresh-note" class="subline">Waiting for first snapshot...</p>
         </div>
+        <nav class="top-nav">
+          <a href="/monitor/" class="top-nav-link active">Monitoring</a>
+          <a href="/monitor/jobs.html" class="top-nav-link">Job History</a>
+        </nav>
         <div class="head-controls">
           <label class="toggle">
             <input id="auto-refresh" type="checkbox" checked />
@@ -42,6 +46,22 @@
           <p>Total Tokens</p>
           <strong id="kpi-total-tokens">N/A</strong>
         </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Create New Job</h2>
+        </div>
+        <form id="create-job-form" class="job-form">
+          <label class="full-row">
+            <span>명령 / 작업 내용</span>
+            <textarea id="job-command" rows="3" placeholder="실행할 작업을 자연어로 입력하세요." required></textarea>
+          </label>
+          <div class="form-actions">
+            <button id="create-job-submit" type="submit">Run Job</button>
+            <span id="create-job-status" aria-live="polite"></span>
+          </div>
+        </form>
       </section>
 
       <section class="panel">
@@ -142,4 +162,3 @@
     <script type="module" src="./app.js"></script>
   </body>
 </html>
-

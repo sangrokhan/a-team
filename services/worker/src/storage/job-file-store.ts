@@ -63,11 +63,11 @@ function findRepositoryRoot(startDir = process.cwd()): string {
 }
 
 function defaultStateRoot(): string {
-  const explicit = process.env.OMX_STATE_ROOT;
+  const explicit = process.env.A_TEAM_STATE_ROOT;
   if (explicit) {
     return path.resolve(explicit);
   }
-  return path.resolve(findRepositoryRoot(), '.omx', 'state', 'jobs');
+  return path.resolve(findRepositoryRoot(), '.a-team', 'state', 'jobs');
 }
 
 function getJobDir(stateRoot: string, jobId: string) {
@@ -154,6 +154,7 @@ async function pruneStaleLock(lockPath: string) {
 }
 
 async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  await ensureParentDir(lockPath);
   const start = Date.now();
   while (true) {
     try {
@@ -225,7 +226,9 @@ export class JobFileStore {
       const currentRaw = await this.readRecord(jobId);
       const current = asJobRecord(currentRaw, jobId);
       if (!current) {
-        throw new Error(`job not found: ${jobId}`);
+        const error = new Error(`ENOENT: no such file or directory, open '${getRecordPath(jobDir)}'`) as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
       }
 
       const normalized = this.normalizePatch({

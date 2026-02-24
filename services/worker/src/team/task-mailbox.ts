@@ -23,6 +23,7 @@ export interface TeamMailboxMessage {
   createdAt: string;
   deliveredAt?: string | null;
   delivered: boolean;
+  sequence?: number;
   meta?: Record<string, unknown>;
 }
 
@@ -111,6 +112,7 @@ export function normalizeMailboxMessages(value: unknown): TeamMailboxMessage[] {
     const normalized: TeamMailboxMessage = {
       id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `mailbox-${Date.now().toString(36)}-${index}`,
       kind: kind as TeamMailboxKind,
+      sequence: typeof item.sequence === 'number' && item.sequence >= 0 ? Math.floor(item.sequence) : undefined,
       taskId,
       message,
       payload: asObject(item.payload),
@@ -127,9 +129,18 @@ export function normalizeMailboxMessages(value: unknown): TeamMailboxMessage[] {
     return normalized;
   });
 
-  return mapped.filter((item): item is TeamMailboxMessage => item !== null).sort((a, b) => {
-    return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
-  });
+  return mapped
+    .filter((item): item is TeamMailboxMessage => item !== null)
+    .map((item, idx) => ({
+      ...item,
+      sequence: typeof item.sequence === 'number' && item.sequence >= 0 ? Math.floor(item.sequence) : idx + 1,
+    }))
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+      }
+      return (a.sequence ?? 0) - (b.sequence ?? 0);
+    });
 }
 
 export async function applyMailboxReassign(

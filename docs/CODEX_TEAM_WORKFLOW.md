@@ -1,5 +1,29 @@
 # 팀 오케스트레이션 실행 워크플로우
 
+## 0. 기준 정합 안내
+
+- 기준 문서: `docs/REFERENCE_TEAM_WORKFLOW.md` (기준)
+- 보조 기준:
+  - 구현 기준: `docs/CODEX_TEAM_IMPLEMENTATION_SPEC.md`
+  - 운영 가이드: `docs/TYPESCRIPT_OPERATIONS.md`
+  - 결정사항: `docs/DECISIONS.md`
+
+정합 규칙:
+- 상태 전이는 `team-plan → team-prd → team-exec → team-verify → team-fix` 모델을 개념적으로 수용하되, 현재 실행은 transition event(`plan_ready`, `tasks_started`, `verification_required`, `verification_resumed`, `fix_attempt`, `complete`, `failed`, `cancelled`) 기반의 `pipelinePhase` 동기화와 task/run 상태 제어를 함께 사용한다.
+- 상태 저장은 `.a-team/state/jobs/<job-id>/` 경로를 기준으로 본다.  
+  (레퍼런스의 `.omc/state/sessions` 표기는 `.a-team/state/jobs` 기준으로 해석)
+- 종료 상태 어휘는 `complete/cancelled`가 아니라 `succeeded/canceled`를 사용한다.
+- 상태 영속성은 `record.json` + `events.jsonl` 기반으로 보며, 단계 이력은 이벤트 이력로 추적한다.
+
+### 레퍼런스 단계 ↔ 현재 구현 매핑
+
+- `team-prd`, `team-verify`, `team-fix`: 구현에서는 transition event(`plan_ready`, `tasks_started`, `verification_required`, `verification_resumed`, `fix_attempt`, `complete`, `failed`, `cancelled`)로 phase 동기화를 남기고, task/run 상태로 실행 제어를 수행한다.
+- `plan`: 팀 템플릿 시드(`teamTasks`, `parallelTasks`, `maxFixAttempts`)와 첫 runnable 산출을 의미한다.
+- `exec`: blocked/dependency 조건 충족 태스크의 배치 실행에 해당한다.
+- `complete`: run 상태 `succeeded`.
+- `failed`: run 상태 `failed`.
+- `cancelled`: run 상태 `canceled`.
+
 ## 1. 목적
 
 Team 모드의 운영 전 과정을 단일 참조점으로 정리한다.
@@ -72,8 +96,8 @@ Team 모드의 운영 전 과정을 단일 참조점으로 정리한다.
 
 ### 5.1 SSOT
 
-- Team state: `.omx/state/jobs/<job-id>/record.json`
-- 이벤트 로그: `.omx/state/jobs/<job-id>/events.jsonl`
+- Team state: `.a-team/state/jobs/<job-id>/record.json`
+- 이벤트 로그: `.a-team/state/jobs/<job-id>/events.jsonl`
 - 이벤트는 append-only
 
 ### 5.2 동기화 체크포인트
@@ -116,10 +140,18 @@ Team 모드의 운영 전 과정을 단일 참조점으로 정리한다.
 ## 10. 운영 체크리스트
 
 1. `GET /v1/jobs/{jobId}/team`에서 runnable/task 상태 확인
-2. `events`에서 `team.task.started`, `team.task.completed`, `team.retry`, `team.task.approval_required` 확인
+2. `events`에서 `team.task.started`, `team.task.completed`, `team.task.auto_approved`, `team.retry`, `team.task.approval_required` 확인
 3. 승인 대기(`waiting_approval`) 시 action 처리 확인
 4. `non-reporting`/lease 만료 시 재배정 경로 점검
 5. `resume` 후 parallelTasks, deadlock 카운트, verify 경로 점검
+
+## 14. Reference 정합 운영 체크리스트 (반영 항목)
+
+1. `docs/REFERENCE_TEAM_WORKFLOW.md`의 단계 모델은 transition event를 통해 phase 동기화와 실행 상태 전이를 함께 관리한다.
+2. `/v1/jobs/*`는 실행 표준이다.
+3. SSOT/이벤트 경로는 `.a-team/state/jobs/<job-id>/`로 통일한다.
+4. `TeamState`/Task 상태값은 openapi의 열거형 기준을 따른다.
+5. 종료 판단은 레퍼런스의 `complete/failed/cancelled` 용어를 현재 구현 용어(`succeeded/failed/canceled`)로 번역해 읽는다.
 
 ## 11. 구현 전달용 상태(축약본)
 
@@ -132,15 +164,13 @@ Team 모드의 운영 전 과정을 단일 참조점으로 정리한다.
 - tmux 시각화 옵션
 
 ### 후속 과제
-
-- `/runs` 계열 정규 API 전환
 - worker 간 질의/지시 자동 협의 라우팅 확장
 - worktree 격리와 패치 병합 자동화 고도화
 - structured output 파이프라인 강화
 
 ## 12. 동기화 규격 체크리스트(요약)
 
-- SSOT 경로: `.omx/state/jobs/<job-id>/record.json`
+- SSOT 경로: `.a-team/state/jobs/<job-id>/record.json`
 - 이벤트: `events.jsonl` append-only
 - task 동기화: dependency + blocked release + 집계
 - heartbeat/non-reporting/reassign 반영

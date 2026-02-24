@@ -1,25 +1,29 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runSetupCliPaths } from '../setup-cli-paths.mjs';
+import { runSetupAteamHome } from '../setup-a-team-home.mjs';
+import { runAteamRun } from '../run.mjs';
 
 const EXECUTABLE_TO_COMMAND = new Map([
-  ['dev-crew-setup-cli-paths.mjs', 'setup-cli-paths'],
-  ['dev-crew-setup-cli-paths', 'setup-cli-paths'],
-  ['setup-cli-paths', 'setup-cli-paths'],
+  ['a-team-run', 'run'],
+  ['a-team-run.mjs', 'run'],
+  ['a-team-setup', 'setup'],
+  ['a-team-setup.mjs', 'setup'],
+  ['run', 'run'],
+  ['setup', 'setup'],
 ]);
 
 function helpText() {
   return `Usage:
-  dev-crew <command> [options]
-  dev-crew-setup-cli-paths [options]
+  a-team <command> [options]
 
 Commands:
-  setup-cli-paths    Bind ~/.codex|~/.claude|~/.gemini agents/skills to repo paths.
+  run                Run API+Worker and open monitor UI for active teams.
+  setup              Initialize ~/.a-team and link ~/.codex/prompts, ~/.claude/{agents,skills}, ~/.codex/skills to it.
   help               Show this help.
 
 Examples:
-  dev-crew setup-cli-paths --dry-run
-  dev-crew-setup-cli-paths --strict
+  a-team run
+  a-team setup
 `;
 }
 
@@ -50,8 +54,12 @@ export async function runBinCommand(options = {}) {
     return 0;
   }
 
-  if (command === 'setup-cli-paths') {
-    return runSetupCliPaths({ argv: args, env, stdout, stderr });
+  if (command === 'setup') {
+    return runSetupAteamHome({ argv: args, env, stdout, stderr });
+  }
+
+  if (command === 'run') {
+    return runAteamRun({ argv: args, env, stdout, stderr });
   }
 
   stderr.write(`Unknown command: ${command}\n`);

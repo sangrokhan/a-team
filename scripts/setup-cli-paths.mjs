@@ -111,11 +111,11 @@ export async function runSetupCliPaths(options = {}) {
 
   const sharedAgentsDir = normalizePath(
     env.DEV_CREW_SHARED_AGENTS_DIR,
-    path.join(repoRoot, 'config', 'cli', 'agents'),
+    path.join(repoRoot, 'agents'),
   );
   const sharedSkillsDir = normalizePath(
     env.DEV_CREW_SHARED_SKILLS_DIR,
-    path.join(repoRoot, 'config', 'cli', 'skills'),
+    path.join(repoRoot, 'skills'),
   );
 
   const cliHomes = [

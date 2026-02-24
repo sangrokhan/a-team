@@ -35,8 +35,8 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('OMX Web Orchestrator API')
-    .setDescription('MVP API for queued OMX/OMC-style jobs')
+    .setTitle('A Team API')
+    .setDescription('MVP API for queued team-style jobs')
     .setVersion('0.1.0')
     .build();
   const document = SwaggerModule.createDocument(app, config);
