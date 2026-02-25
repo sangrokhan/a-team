@@ -82,6 +82,10 @@ function getEventsPath(jobDir: string) {
   return path.join(jobDir, 'events.jsonl');
 }
 
+function getCommonContextPath(jobDir: string): string {
+  return path.join(jobDir, 'common_context.md');
+}
+
 function getLockPath(jobDir: string) {
   return path.join(jobDir, '.lock');
 }
@@ -285,6 +289,25 @@ export class JobFileStore {
       }
       throw error;
     }
+  }
+
+  async readCommonContext(jobId: string): Promise<string | null> {
+    const jobDir = getJobDir(this.stateRoot, jobId);
+    const contextPath = getCommonContextPath(jobDir);
+    try {
+      return await fs.readFile(contextPath, 'utf8');
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  async writeCommonContext(jobId: string, content: string): Promise<void> {
+    const jobDir = getJobDir(this.stateRoot, jobId);
+    const contextPath = getCommonContextPath(jobDir);
+    await ensureParentDir(contextPath);
+    await fs.writeFile(contextPath, content, 'utf8');
   }
 
   private async readRecord(jobId: string): Promise<unknown> {

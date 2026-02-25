@@ -1,256 +1,196 @@
 const POLL_MS = 5000;
 
 const elements = {
-  refreshNote: document.getElementById('history-refresh-note'),
-  autoRefresh: document.getElementById('history-auto-refresh'),
+  jobsBody: document.getElementById('history-jobs-body'),
   refreshNow: document.getElementById('history-refresh-now'),
   refreshSelected: document.getElementById('refresh-selected'),
-  jobCount: document.getElementById('job-count'),
-  historyStatus: document.getElementById('history-status'),
-  jobsBody: document.getElementById('history-jobs-body'),
-  statusFilter: document.getElementById('history-status-filter'),
-  modeFilter: document.getElementById('history-mode-filter'),
-  providerFilter: document.getElementById('history-provider-filter'),
-  limitFilter: document.getElementById('history-limit'),
-  filterForm: document.getElementById('history-filters'),
-  clearFilterBtn: document.getElementById('history-clear'),
-  detailTitle: document.getElementById('detail-title'),
-  detailSummary: document.getElementById('history-summary'),
-  detailOutput: document.getElementById('history-output'),
-  detailTeam: document.getElementById('history-team'),
-  detailEvents: document.getElementById('history-events'),
+  matrixContainer: document.getElementById('matrix-container'),
+  chatContainer: document.getElementById('chat-container'),
+  selectedJobInfo: document.getElementById('selected-job-info'),
+  chatTitle: document.getElementById('chat-title'),
 };
 
 const state = {
   jobs: [],
   selectedJobId: null,
+  selectedTaskId: null,
+  teamState: null,
+  events: [],
 };
 
-function formatNumber(value) {
-  if (value == null || Number.isNaN(Number(value))) return 'N/A';
-  return Number(value).toLocaleString();
-}
-
-function formatTime(iso) {
-  if (!iso) return 'N/A';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return 'N/A';
-  return date.toLocaleString();
-}
-
-function statusPill(status) {
-  return `<span class="status-pill ${status || ''}">${status || 'unknown'}</span>`;
-}
+const TEAM_ROLES = ['planner', 'researcher', 'designer', 'developer', 'executor', 'verifier'];
 
 async function readJson(url) {
   const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json();
 }
 
-function isTeamMode(mode) {
-  return mode === 'team';
+function formatTime(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function buildQuery() {
-  const params = new URLSearchParams();
-  const limit = Number(elements.limitFilter.value || 100);
-  params.set('limit', Number.isFinite(limit) && limit > 0 ? String(limit) : '100');
-
-  const statuses = elements.statusFilter.value.trim();
-  if (statuses) params.append('statuses', statuses);
-
-  const modes = elements.modeFilter.value.trim();
-  if (modes) params.append('modes', modes);
-
-  return params;
-}
-
-function clearSelection(message = 'Select a job to inspect.') {
-  state.selectedJobId = null;
-  elements.detailTitle.textContent = 'Job Detail';
-  elements.historyStatus.textContent = message;
-  elements.detailSummary.textContent = 'Select a job to inspect.';
-  elements.detailOutput.textContent = '-';
-  elements.detailTeam.textContent = '-';
-  elements.detailEvents.innerHTML = '<li class="empty">No events yet.</li>';
-
-  for (const row of elements.jobsBody.querySelectorAll('.job-row')) {
-    row.classList.remove('selected');
-  }
-}
-
+// 1. Job 목록 렌더링 (사이드바)
 function renderJobList(jobs) {
   state.jobs = jobs;
-  elements.jobCount.textContent = `Total: ${formatNumber(jobs.length)}`;
-
   if (!jobs.length) {
-    elements.jobsBody.innerHTML = '<tr><td colspan="6" class="empty">No jobs found.</td></tr>';
+    elements.jobsBody.innerHTML = '<tr><td class="empty">No jobs found.</td></tr>';
     return;
   }
 
   elements.jobsBody.innerHTML = jobs
     .map((job) => {
-      const selected = state.selectedJobId === job.id ? ' selected' : '';
+      const isSelected = state.selectedJobId === job.id;
       return `
-        <tr class="job-row${selected}" data-job-id="${job.id}">
-          <td>${job.id.slice(0, 8)}...</td>
-          <td>${statusPill(job.status)}</td>
-          <td>${job.mode}</td>
-          <td>${job.provider}</td>
-          <td>${job.task}</td>
-          <td>${formatTime(job.updatedAt)}</td>
+        <tr class="job-row ${isSelected ? 'selected' : ''}" data-job-id="${job.id}">
+          <td style="padding: 1rem;">
+            <div style="font-weight: bold; font-size: 0.9rem;">${job.task.slice(0, 40)}${job.task.length > 40 ? '...' : ''}</div>
+            <div style="display: flex; justify-content: space-between; margin-top: 0.4rem;">
+              <span class="status-pill ${job.status}">${job.status}</span>
+              <span style="font-size: 0.75rem; color: var(--muted);">${new Date(job.updatedAt).toLocaleDateString()}</span>
+            </div>
+          </td>
         </tr>
       `;
     })
     .join('');
 
-  for (const row of elements.jobsBody.querySelectorAll('.job-row')) {
-    row.addEventListener('click', () => {
-      const next = row.getAttribute('data-job-id');
-      if (!next || next === state.selectedJobId) return;
-      selectJob(next);
-    });
-  }
-
-  if (!state.selectedJobId && jobs.length > 0) {
-    selectJob(jobs[0].id);
-  } else if (state.selectedJobId && !jobs.find((job) => job.id === state.selectedJobId)) {
-    clearSelection('Selected job removed from current view.');
-  }
+  elements.jobsBody.querySelectorAll('.job-row').forEach((row) => {
+    row.addEventListener('click', () => selectJob(row.getAttribute('data-job-id')));
+  });
 }
 
-function renderEvents(events) {
-  if (!events.length) {
-    elements.detailEvents.innerHTML = '<li class="empty">No events yet.</li>';
+// 2. 타임라인 매트릭스 렌더링 (오른쪽 상단)
+function renderMatrix(teamState) {
+  state.teamState = teamState;
+  const tasks = teamState.tasks || [];
+  
+  let html = `<table class="matrix-table"><thead><tr><th class="matrix-header">Agent / Phase</th>`;
+  
+  // 가로축: Roles (Phases)
+  TEAM_ROLES.forEach(role => {
+    html += `<th class="matrix-header">${role.toUpperCase()}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+
+  // 세로축: 실제 수행된 태스크들 (단순화를 위해 일단 Role별로 매핑)
+  TEAM_ROLES.forEach(role => {
+    html += `<tr><td class="matrix-role">${role}</td>`;
+    TEAM_ROLES.forEach(phase => {
+      const task = tasks.find(t => t.role === role); // 실제로는 phase와 role이 일치하는 태스크를 찾아야 함
+      if (role === phase && task) {
+        const isSelected = state.selectedTaskId === task.id;
+        html += `
+          <td>
+            <div class="matrix-cell ${task.status} ${isSelected ? 'active' : ''}" 
+                 data-task-id="${task.id}" 
+                 title="${task.name}">
+              ${task.status === 'succeeded' ? '✅' : task.status === 'running' ? '⏳' : '•'}
+            </div>
+          </td>`;
+      } else {
+        html += `<td><div class="matrix-cell" style="opacity: 0.2; cursor: default;"></div></td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  elements.matrixContainer.innerHTML = html;
+
+  elements.matrixContainer.querySelectorAll('.matrix-cell[data-task-id]').forEach(cell => {
+    cell.addEventListener('click', () => selectTask(cell.getAttribute('data-task-id')));
+  });
+}
+
+// 3. 채팅 리스트 렌더링 (오른쪽 하단)
+function renderChat(taskId) {
+  state.selectedTaskId = taskId;
+  const task = state.teamState.tasks.find(t => t.id === taskId);
+  elements.chatTitle.textContent = task ? `Agent Logs: ${task.role} (${task.id})` : 'Agent Logs';
+
+  // 해당 태스크와 관련된 이벤트 필터링
+  const relevantEvents = state.events.filter(e => 
+    e.payload?.taskId === taskId || 
+    (e.type.startsWith('team.mailbox') && e.message.includes(taskId))
+  );
+
+  if (!relevantEvents.length) {
+    elements.chatContainer.innerHTML = '<p class="empty">No detailed logs found for this agent node.</p>';
     return;
   }
 
-  elements.detailEvents.innerHTML = events
-    .map(
-      (event) => `
-      <li>
-        <span class="when">${formatTime(event.createdAt)}</span>
-        <span class="event-type">${event.type}</span>
-        <div>${event.message}</div>
-      </li>
-    `,
-    )
+  elements.chatContainer.innerHTML = relevantEvents
+    .map(event => {
+      let typeClass = 'agent';
+      if (event.type.includes('system') || event.type.includes('phase')) typeClass = 'system';
+      
+      return `
+        <div class="chat-msg ${typeClass}">
+          <span class="author">${event.type.split('.').pop().toUpperCase()} <small>${formatTime(event.createdAt)}</small></span>
+          <div class="content">${event.message}</div>
+          ${event.payload?.reason ? `<div style="font-size: 0.8rem; color: var(--danger); margin-top: 0.3rem;">Reason: ${event.payload.reason}</div>` : ''}
+        </div>
+      `;
+    })
     .join('');
-}
-
-function formatJobSummary(job) {
-  if (!job) return '-';
-  const summary = {
-    id: job.id,
-    mode: job.mode,
-    provider: job.provider,
-    status: job.status,
-    repo: job.repo,
-    ref: job.ref,
-    task: job.task,
-    approvalState: job.approvalState,
-    startedAt: job.startedAt ?? null,
-    updatedAt: job.updatedAt,
-    finishedAt: job.finishedAt ?? null,
-    error: job.error ?? null,
-  };
-
-  return JSON.stringify(summary, null, 2);
+  
+  elements.chatContainer.scrollTop = elements.chatContainer.scrollHeight;
 }
 
 async function selectJob(jobId) {
   state.selectedJobId = jobId;
+  state.selectedTaskId = null;
+  
+  const job = state.jobs.find(j => j.id === jobId);
+  elements.selectedJobInfo.textContent = job ? `Job: ${job.id.slice(0,8)}... | ${job.task.slice(0,50)}` : '';
 
-  for (const row of elements.jobsBody.querySelectorAll('.job-row')) {
-    row.classList.toggle('selected', row.getAttribute('data-job-id') === jobId);
-  }
-
-  elements.detailTitle.textContent = `Job ${jobId.slice(0, 8)}...`;
-  elements.historyStatus.textContent = 'Loading details...';
-  elements.detailSummary.textContent = 'Loading...';
-  elements.detailOutput.textContent = 'Loading...';
-  elements.detailTeam.textContent = 'Loading...';
-
+  // UI 갱신
+  renderJobList(state.jobs);
+  
   try {
-    const job = await readJson(`/v1/jobs/${encodeURIComponent(jobId)}`);
-    elements.detailSummary.textContent = formatJobSummary(job);
-    elements.detailOutput.textContent = job.output ? JSON.stringify(job.output, null, 2) : 'No output yet.';
-    elements.historyStatus.textContent = `Status: ${job.status}`;
-
-    if (isTeamMode(job.mode)) {
-      try {
-        const teamState = await readJson(`/v1/jobs/${encodeURIComponent(jobId)}/team`);
-        elements.detailTeam.textContent = JSON.stringify(teamState, null, 2);
-      } catch {
-        elements.detailTeam.textContent = 'Team state unavailable.';
-      }
-    } else {
-      elements.detailTeam.textContent = 'This job is not team mode.';
-    }
-
-    const events = await readJson(`/v1/jobs/${encodeURIComponent(jobId)}/events/list?limit=200`);
-    renderEvents(Array.isArray(events) ? events : []);
-  } catch (error) {
-    elements.historyStatus.textContent = `Failed to load job ${jobId.slice(0, 8)}...`;
-    elements.detailSummary.textContent = `Failed to load details: ${error.message}`;
-    elements.detailOutput.textContent = '-';
-    elements.detailTeam.textContent = '-';
-    elements.detailEvents.innerHTML = '<li class="empty">Failed to load events.</li>';
+    const [teamState, events] = await Promise.all([
+      readJson(`/v1/jobs/${encodeURIComponent(jobId)}/team`),
+      readJson(`/v1/jobs/${encodeURIComponent(jobId)}/events/list?limit=500`)
+    ]);
+    
+    state.events = events;
+    renderMatrix(teamState);
+    elements.chatContainer.innerHTML = '<p class="empty">Select an agent node from the matrix above.</p>';
+  } catch (err) {
+    elements.matrixContainer.innerHTML = `<p class="empty">Error loading details: ${err.message}</p>`;
   }
 }
 
-async function refreshList() {
+function selectTask(taskId) {
+  state.selectedTaskId = taskId;
+  renderMatrix(state.teamState);
+  renderChat(taskId);
+}
+
+async function refreshAll() {
   try {
-    const provider = elements.providerFilter.value.trim();
-    const response = await readJson(`/v1/jobs?${buildQuery().toString()}`);
-    let jobs = Array.isArray(response) ? response : [];
-    if (provider) {
-      jobs = jobs.filter((job) => job.provider === provider);
-    }
+    const jobs = await readJson('/v1/jobs?limit=50');
     renderJobList(jobs);
-    elements.refreshNote.textContent = `Updated at ${new Date().toLocaleString()}`;
-  } catch (error) {
-    elements.refreshNote.textContent = `Could not refresh list: ${error.message}`;
-    elements.jobsBody.innerHTML = '<tr><td colspan="6" class="empty">Unable to load jobs.</td></tr>';
+    if (!state.selectedJobId && jobs.length > 0) {
+      selectJob(jobs[0].id);
+    } else if (state.selectedJobId) {
+      selectJob(state.selectedJobId);
+    }
+  } catch (err) {
+    console.error('Failed to refresh:', err);
   }
 }
 
-function clearFilters() {
-  elements.statusFilter.value = '';
-  elements.modeFilter.value = '';
-  elements.providerFilter.value = '';
-  elements.limitFilter.value = '100';
-  refreshList();
-}
+elements.refreshNow.addEventListener('click', refreshAll);
+elements.refreshSelected.addEventListener('click', () => state.selectedJobId && selectJob(state.selectedJobId));
 
-elements.refreshNow.addEventListener('click', () => {
-  refreshList();
-  if (state.selectedJobId) {
-    selectJob(state.selectedJobId);
-  }
-});
+// 초기 로드
+refreshAll();
 
-elements.refreshSelected.addEventListener('click', () => {
-  if (!state.selectedJobId) return;
-  selectJob(state.selectedJobId);
-});
-
-elements.filterForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  refreshList();
-});
-
-elements.clearFilterBtn.addEventListener('click', clearFilters);
-
+// 폴링 (주인님 요청대로 5분 이상 지연되지 않도록 5초마다 갱신)
 setInterval(() => {
-  if (!elements.autoRefresh.checked) return;
-  refreshList();
-  if (state.selectedJobId) {
-    selectJob(state.selectedJobId);
-  }
+  refreshAll();
 }, POLL_MS);
-
-refreshList();

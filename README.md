@@ -1,248 +1,58 @@
-# a-team (TypeScript)
+# A-Team Orchestration Server 🚀
 
-TypeScript/NestJS + BullMQ + 파일 기반 실행 이력 저장소 기반 작업 오케스트레이션 서버입니다.
-현재 루트 기준 운영 경로는 npm 워크스페이스(`services/api`, `services/worker`)입니다.
+TypeScript/NestJS 기반의 강력한 작업 오케스트레이션 시스템입니다. BullMQ와 tmux를 활용하여 멀티 에이전트 협업 및 복잡한 작업 파이프라인을 효율적으로 관리합니다.
 
-## Stack
-- Node.js 20+
-- TypeScript 5
-- NestJS (API)
-- BullMQ + Redis (기본 큐) 또는 `REDIS_URL` 미설정 시 파일 큐 폴백
-- `.a-team/state/jobs` 파일 기반 저장소 (`record.json`, `events.jsonl`)
-- tmux (멀티 패널 실행)
+## 🛠 Tech Stack
+- **Runtime**: Node.js 20+ (TypeScript 5)
+- **Framework**: NestJS (API), BullMQ (Queue Management)
+- **State Management**: Redis (Shared Queue) or Local File Fallback
+- **Orchestration**: tmux (Parallel worker execution & visualization)
+- **Storage**: File-based job history (`.a-team/state/jobs`)
 
-## Quick Start
-1. 의존성 설치
+## 📂 Structure
+- `services/api`: RESTful API 서버 (작업 등록 및 모니터링)
+- `services/worker`: 실제 작업을 수행하는 워커 및 tmux 오케스트레이터
+- `bin/`: `a-team` CLI 엔트리 포인트
+- `skills/`: 에이전트가 활용 가능한 공용 스킬 셋
+- `prompts/`: 에이전트별 특화 프롬프트 모음
+
+## 🚀 Quick Start
+
+### 1. 의존성 설치 및 초기화
 ```bash
 npm install
-```
-`npm install` 시 `postinstall`에서 `a-team setup`을 자동 실행해
-`~/.a-team` 초기화 및 `~/.codex`, `~/.claude` 경로 바인딩을 수행합니다.
-필요 시 사용자 홈 기준 초기화 폴더를 생성하려면 아래 명령을 실행하세요.
-```bash
-node ./bin/a-team.mjs setup
-```
-또는:
-```bash
-npm run setup:home
+# postinstall 스크립트가 자동으로 ~/.a-team 환경을 설정합니다.
 ```
 
-2. 환경 변수
+### 2. 환경 설정
 ```bash
 cp .env.example .env
+# API 키 및 Redis 설정 확인
 ```
 
-3. API + Worker 동시 실행(호스트, 단일 명령어)
+### 3. 로컬 개발 서버 실행 (API + Worker)
 ```bash
-PORT=8080 npm run dev:local
+npm run dev:local
 ```
+*서버 실행 후 `http://localhost:8080/monitor/`에서 실시간 팀 상태를 확인할 수 있습니다.*
 
-또는 `a-team` 단일 명령으로 실행하려면:
-```bash
-a-team run
-```
-`/monitor` 화면이 `http://localhost:18080/monitor/`로 열려 팀 상태를 실시간 확인할 수 있습니다.
-
-`api`와 `worker`가 하나의 터미널에서 동시에 실행됩니다. `REDIS_URL`은 큐 동기화 전용이며,
-작업 상태는 `.a-team/state/jobs` 아래 파일로 저장됩니다.
-기본 `PORT=8080` 기준으로 `localhost:8080`에서 API가 기동됩니다.
-`REDIS_URL`이 없으면 API/Worker가 파일 큐(`.a-team/state/jobs/.queue`)로 동작합니다.
-
-## 실행 가이드(운영 실무형)
-
-### 1) 최소 실행 준비
-- Node 20+, npm 10+ 권장
-- 필수 바이너리: `codex`(필요 시 `gemini`, `claude`)
-- tmux 설치 필요(Worker orchestration용)
-- 환경변수 파일 준비
+## 🤖 Team Mode (Multi-Agent)
+A-Team은 작업을 여러 에이전트에게 분배하고 tmux를 통해 병렬로 시각화하며 실행할 수 있습니다.
 
 ```bash
-cp .env.example .env
-npm install
-```
-
-### 2) 핵심 모드 실행(권장: 호스트 단일 포트)
-
-```bash
-PORT=8080 npm run dev:local
-```
-
-실행 효과
-- API: `http://localhost:8080`
-- Worker: `.a-team/state/jobs` 기반 큐 사용(Redis 미설정 시)
-- `/v1/jobs`로 작업 등록 후 내부 orchestration 수행
-
-### 3) 팀(Task 분할) 모드 실행
-
-1. 작업 등록
-```bash
-curl -s -X POST http://localhost:8080/v1/jobs \
+curl -X POST http://localhost:8080/v1/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "codex",
     "mode": "team",
-    "repo": "owner/repo",
-    "ref": "main",
-    "task": "요청사항을 팀 모드로 분해해 실행해줘",
+    "task": "복잡한 분석 작업을 팀 모드로 수행해줘",
     "options": {
-      "keepTmuxSession": true,
-      "maxMinutes": 60,
-      "team": {
-        "tmuxVisualization": true
-      }
+      "team": { "tmuxVisualization": true }
     }
   }'
 ```
 
-2. jobId 확인 후 상태 점검
-```bash
-curl -s http://localhost:8080/v1/jobs/{jobId}
-curl -s http://localhost:8080/v1/jobs/{jobId}/team
-curl -s http://localhost:8080/v1/jobs/{jobId}/team/mailbox
-curl -s http://localhost:8080/v1/jobs/{jobId}/events
-```
-
-3. tmux 상태 확인( `options.team.tmuxVisualization=true` 인 경우)
-```bash
-curl -s http://localhost:8080/v1/jobs/{jobId}/events | rg -n "tmux_session_started|attachCommand"
-```
-
-4. 필요한 경우 재개
-```bash
-curl -s -X POST http://localhost:8080/v1/jobs/{jobId}/actions/resume
-```
-
-### 4) 실행 중 모니터링
-
-- 팀 상태 파일:
-  - `.a-team/state/jobs/<job-id>/record.json` (`job.options.team.state` 포함)
-  - `.a-team/state/jobs/<job-id>/events.jsonl`
-- API 이벤트: `/v1/jobs/{jobId}/events`
-- 팀 mailbox API:
-  - `GET /v1/jobs/{jobId}/team/mailbox`
-  - `POST /v1/jobs/{jobId}/team/mailbox`
-- 모니터 개요 API: `/v1/monitor/overview`
-- 웹 모니터 페이지: `http://localhost:8080/monitor/`
-- 검증 체크 기준:
-  - `queued=0`, `running=0`, `blocked=0`
-  - verify 통과
-  - 허용 실패 정책 충족
-
-### 5) 종료 및 정리
-- 서버 종료: 터미널에서 `Ctrl+C`
-- tmux 남은 세션 정리(필요 시):
-```bash
-tmux ls
-tmux kill-session -t <session-name>
-```
-- 작업 잔존 상태 정리(옵션):
-```bash
-rm -rf .a-team/state/jobs/<job-id>
-rm -rf .a-team/state/jobs
-```
-
-> 파일 기반 모드는 복구/재시작에 유리합니다.  
-> Redis를 사용하지 않아도 동작하도록 설계되어 있어 데이터 의존성은 최소화됩니다.
-
-## Docker 단일 실행(호스트 포트 하나만 사용)
-
-아래는 API/Worker를 한 번에 띄우는 Docker 실행입니다.
-
-```bash
-API_PORT=18080 npm run docker:up
-```
-
-Swagger: `http://localhost:18080/docs`
-
-## Job 실행 예시
-```bash
-curl -s -X POST http://localhost:8080/v1/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider": "codex",
-    "mode": "team",
-    "repo": "owner/repo",
-    "ref": "main",
-    "task": "plan 결과 기준으로 tmux 병렬 실행 후 결과를 동기화해줘",
-    "options": {
-      "maxMinutes": 30,
-      "keepTmuxSession": true,
-      "team": {
-        "tmuxVisualization": true
-      }
-    }
-  }'
-```
-
-이후 `GET /v1/jobs/{jobId}/events`에서 `tmux_session_started` 이벤트의
-`attachCommand`를 확인해 `tmux` 세션에 접속할 수 있습니다.
-
-team 모드 실행 중 상태를 보기 위해서는 다음도 함께 확인합니다.
-
-```bash
-curl -s http://localhost:8080/v1/jobs/{jobId}/team
-```
-
-Team 모드 동작 범위는 `docs/CODEX_TEAM_IMPLEMENTATION_SPEC.md`(구현 기준),  
-운영 절차와 동기화 규칙은 `docs/CODEX_TEAM_WORKFLOW.md`를 참고하세요.
-
-`paused/requires approval` 상태에서 재개하려면 아래를 호출합니다.
-
-```bash
-curl -s -X POST http://localhost:8080/v1/jobs/{jobId}/actions/resume
-```
-
-## CLI Bin 구조
-- `bin/a-team.mjs`: 공용 CLI 엔트리
-- `scripts/bin/dispatch.mjs`: 실행 파일명/서브커맨드 디스패처
-- `scripts/setup-a-team-home.mjs`: `~/.a-team` 초기화 및 `~/.codex`, `~/.claude` 경로 바인딩
-
-공용 CLI 데이터 경로:
-이 디렉터리는 `codex`, `claude` CLI가 사용할 공용 데이터(현재 `prompts`, `skills`) 소스입니다.  
-`a-team setup` 실행 시 홈 경로로 동기화되어 아래 경로로 바인딩됩니다.
-
-- `~/.codex/prompts` -> `prompts`
-- `~/.claude/agents` -> `prompts`
-- `~/.codex/skills` -> `skills`
-- `~/.claude/skills` -> `skills`
-
-수동 실행:
-```bash
-node ./bin/a-team.mjs setup
-```
-
-## Scripts
-- `npm run setup:home`
-- `npm run run`
-- `npm run dev:local`
-- `npm run dev:api`
-- `npm run dev:worker`
-- `npm run build`
-- `npm run start:api`
-- `npm run start:worker`
-- `npm run docker:up`
-- `npm run docker:down`
-
-포트 충돌 시 Docker 실행 예시:
-```bash
-API_PORT=18080 npm run docker:up
-```
-
-## Directory
-```text
-bin/          # CLI 실행 파일 엔트리
-prompts/     # 공용 CLI prompts 경로
-skills/      # 공용 CLI skills 경로
-scripts/      # CLI 디스패처/설정 스크립트
-services/
-  api/        # NestJS API
-  worker/     # BullMQ worker + tmux orchestrator
-docs/openapi/ # OpenAPI spec
-infra/        # docker-compose
-```
-
-## Legacy Python Code
-기존 Python 구현은 TypeScript 전환 과정에서 분리되었으며, 현재 레포에서 제거되어 있습니다.
-신규 개발/운영 기준은 TypeScript 워크스페이스입니다.
-
-자세한 운영 가이드는 `docs/CODEX_TEAM_WORKFLOW.md`와 `docs/TYPESCRIPT_OPERATIONS.md`를 참고하세요.
+## 📜 Documentation
+- [Reference Workflow](docs/REFERENCE_TEAM_WORKFLOW.md)
+- [Codex Implementation Spec](docs/CODEX_TEAM_IMPLEMENTATION_SPEC.md)
+- [TypeScript Operations Guide](docs/TYPESCRIPT_OPERATIONS.md)

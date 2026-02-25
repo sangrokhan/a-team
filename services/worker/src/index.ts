@@ -18,7 +18,7 @@ const JOB_QUEUE_NAME = 'jobs';
 const jobStore = new JobFileStore();
 const redisUrl = process.env.REDIS_URL ?? '';
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 2);
-const workRoot = process.env.WORK_ROOT ?? '/tmp/a-team-runs';
+const workRoot = process.env.WORK_ROOT ?? path.resolve(findRepositoryRoot(), '.a-team', 'runs');
 const fileQueueEnabled = !process.env.REDIS_URL;
 const fileQueueStaleMs = Number(process.env.WORK_QUEUE_STALE_CLAIM_MS ?? 15 * 60 * 1000);
 const TEAM_TASK_CLAIM_TTL_MS = Number(process.env.TEAM_TASK_CLAIM_TTL_MS ?? 60_000);
@@ -44,10 +44,10 @@ const redisConnection = (() => {
   };
 })();
 
-type Role = 'planner' | 'executor' | 'verifier';
-type TeamRole = StoredTeamRole;
-const TMUX_ROLES: Role[] = ['planner', 'executor', 'verifier'];
-const TEAM_ROLES: TeamRole[] = ['planner', 'researcher', 'designer', 'developer', 'executor', 'verifier'];
+type Role = 'planner' | 'executor' | 'verifier' | 'synthesis';
+type TeamRole = StoredTeamRole | 'synthesis';
+const TMUX_ROLES: Role[] = ['planner', 'executor', 'verifier', 'synthesis'];
+const TEAM_ROLES: TeamRole[] = ['planner', 'researcher', 'designer', 'developer', 'executor', 'verifier', 'synthesis'];
 const TEAM_IDLE_BACKOFF_BASE_MS = Number(process.env.TEAM_IDLE_BACKOFF_BASE_MS ?? 800);
 const TEAM_IDLE_BACKOFF_MAX_MS = Number(process.env.TEAM_IDLE_BACKOFF_MAX_MS ?? 8_000);
 const JOB_LLM_RATE_LIMIT_RETRY_MAX_ATTEMPTS = (() => {
@@ -170,8 +170,12 @@ interface TeamRunState {
   maxFixAttempts: number;
   parallelTasks: number;
   currentTaskId?: string | null;
+  error?: string | null;
   tasks: TeamTaskState[];
   mailbox?: TeamMailboxMessage[];
+  checkpointSummary?: string; // 단계별 요약 정보 저장
+  roundCount?: number; // 라운드 테이블 토론 횟수 추적
+  dynamicRoles?: string[]; // 동적으로 생성된 역할 목록
   pipelinePhase?: TeamPipelinePhase;
   phaseHistory?: TeamPipelinePhaseHistoryEntry[];
   sessionId?: string;
@@ -272,6 +276,7 @@ interface JobOptionsNormalized {
   agentCommands: Partial<Record<TeamRole, string>>;
   maxFixAttempts: number;
   approvalPolicy: TeamTaskApprovalPolicy;
+  hitlMode: 'full-auto' | 'on-failure' | 'step-by-step'; // 추가
 }
 
 type TeamTaskApprovalPolicyMode = 'manual' | 'always' | 'conditional';
@@ -626,6 +631,8 @@ interface TemplateContext {
   phase?: string;
   attempt?: number;
   workdir: string;
+  commonContext?: string;
+  mailboxMessages?: string;
   dependencyOutputs?: string;
 }
 
@@ -1559,6 +1566,11 @@ function normalizeJobOptions(raw: Record<string, unknown> | null): JobOptionsNor
   const defaultKeepTmux = (process.env.TMUX_KEEP_SESSION_ON_FINISH ?? '1') !== '0';
   const defaultTeamTmuxVisualization = toBoolean(process.env.TEAM_TMUX_VISUALIZATION, false);
 
+  const hitlModeRaw = String(team.hitlMode || obj.hitlMode || 'full-auto').toLowerCase();
+  const hitlMode = ['full-auto', 'on-failure', 'step-by-step'].includes(hitlModeRaw) 
+    ? (hitlModeRaw as any) 
+    : 'full-auto';
+
   const maxMinutes = toPositiveInt(obj.maxMinutes, 60);
   const keepTmuxSession = typeof obj.keepTmuxSession === 'boolean' ? obj.keepTmuxSession : defaultKeepTmux;
   const parallelism = toPositiveInt(team.parallelTasks, toPositiveInt(obj.parallelTasks, 1));
@@ -1586,6 +1598,7 @@ function normalizeJobOptions(raw: Record<string, unknown> | null): JobOptionsNor
     maxFixAttempts,
     agentCommands,
     approvalPolicy,
+    hitlMode,
   };
 }
 
@@ -1606,6 +1619,8 @@ function applyTemplate(template: string, context: TemplateContext): string {
     PHASE: context.phase ?? '',
     ATTEMPT: String(context.attempt ?? 1),
     WORKDIR: context.workdir,
+    COMMON_CONTEXT: context.commonContext ?? '',
+    MAILBOX_MESSAGES: context.mailboxMessages ?? '',
     DEPENDENCY_OUTPUTS: context.dependencyOutputs ?? '',
   };
 
@@ -2408,7 +2423,29 @@ function buildFailureRecoveryState(state: TeamRunState): TeamRunState | null {
     return null;
   }
 
+  // 지능형 회귀(Backtracking): Verifier가 특정 단계로 롤백을 요청한 경우 확인
+  const verifierTask = state.tasks.find(t => t.role === 'verifier' && t.status === 'failed');
+  const rollbackTargetId = asObject(verifierTask?.output?.parsed).rollbackToTaskId as string | undefined;
+
   const retryIds = collectFailureCascade(state);
+  
+  if (rollbackTargetId && state.tasks.some(t => t.id === rollbackTargetId)) {
+      retryIds.add(rollbackTargetId);
+      // 타겟 태스크를 의존하는 모든 태스크를 전파하여 추가
+      let changed = true;
+      while (changed) {
+          changed = false;
+          for (const task of state.tasks) {
+              if (retryIds.has(task.id)) continue;
+              if ((task.dependencies ?? []).some(depId => retryIds.has(depId))) {
+                  retryIds.add(task.id);
+                  changed = true;
+              }
+          }
+      }
+      addEvent(state.sessionId!, 'team.backtracking', `Rolling back to task: ${rollbackTargetId}`, { rollbackTargetId }).catch(() => {});
+  }
+
   if (retryIds.size === 0) {
     return null;
   }
@@ -2581,11 +2618,22 @@ async function executeTeamTask(
   options: JobOptionsNormalized,
   task: TeamTaskState,
   allTasks: TeamTaskState[],
+  mailbox: TeamMailboxMessage[],
   phase: string,
   workspaceDir: string,
   visualizationPane?: TeamVisualizationPane,
 ): Promise<TeamTaskExecutionResult> {
   const commandTemplate = resolveRoleCommand(job.provider, task.role, options.agentCommands);
+  const commonContext = (await jobStore.readCommonContext(job.id)) ?? '';
+  const relevantMailbox = mailbox.filter((message) => {
+    if (message.taskId === task.id) return true;
+    if (message.to === 'leader' && task.role === 'planner') return true;
+    if (Array.isArray(message.to)) {
+      return (message.to as TeamRole[]).includes(task.role);
+    }
+    return message.to === task.role;
+  });
+  const mailboxMessagesStr = summarizeValueForTemplate(relevantMailbox);
   let currentAttempt = task.attempt;
 
   await addEvent(job.id, 'team.task.started', `Role=${task.role} task=${task.id} attempt=${currentAttempt}`, {
@@ -2617,6 +2665,8 @@ async function executeTeamTask(
       phase,
       attempt: currentAttempt,
       workdir: workspaceDir,
+      commonContext,
+      mailboxMessages: mailboxMessagesStr,
       dependencyOutputs: summarizeValueForTemplate(collectDependencyOutputs(task, allTasks)),
     });
 
@@ -2643,6 +2693,23 @@ async function executeTeamTask(
       task.role === 'planner' ? parseTeamPlannerOutput(plannerPayloads) : null;
     const verifierStatus = task.role === 'verifier' ? parseVerifierResult(normalized.output.parsed) : null;
     const mailboxMessages = extractMailboxMessagesFromTaskOutput(task, normalized.output.parsed);
+
+    const parsedOutput = asObject(normalized.output.parsed);
+    if (task.role === 'planner' && typeof parsedOutput.commonContext === 'string') {
+      await jobStore.writeCommonContext(job.id, parsedOutput.commonContext);
+      await addEvent(job.id, 'team.common_context.updated', 'Common context updated by Leader', {
+        taskId: task.id,
+      });
+    }
+
+    // 동적 팀 구성: 플래너가 신규 태스크 목록을 응답에 포함한 경우 반영
+    if (task.role === 'planner' && Array.isArray(parsedOutput.nextTasks)) {
+      await addEvent(job.id, 'team.dynamic_teaming', 'Planner generated new task list', {
+        tasks: parsedOutput.nextTasks,
+      });
+      // 이 로직은 persist 시점에 병합되도록 유도
+    }
+
     const plannerRetryLimit = task.role === 'planner' ? Math.max(1, task.maxAttempts ?? 2) : 0;
 
     const plannerParseError = plannerParseResult && !plannerParseResult.ok
@@ -2939,7 +3006,18 @@ async function runTeamOrchestration(job: JobRecord): Promise<RunResult> {
 
       if (runnable.length === 0 && allTasksFinished(state)) {
         const hasFailed = state.tasks.some((task) => task.status === 'failed');
-        if (hasFailed && state.fixAttempts < state.maxFixAttempts) {
+        
+        // HITL Mode: On Failure 처리
+        if (hasFailed && options.hitlMode === 'on-failure') {
+             state.status = 'waiting_approval';
+             state = withTeamRunMetrics(state);
+             await persistTeamState(job, state, 'verification_required', 'hitl-on-failure-approval');
+             await addEvent(job.id, 'team.hitl_pause', 'Paused due to task failure (HITL: on-failure)');
+             return finalizeTeamRunResult(job.id, teamVisualization, options.keepTmuxSession, { state: 'waiting_approval' });
+        }
+
+        const maxCycles = 5;
+        if (hasFailed && state.fixAttempts < Math.min(state.maxFixAttempts, maxCycles)) {
           const recovered = buildFailureRecoveryState(state);
           if (recovered) {
             state = withTeamRunMetrics(recovered);
@@ -2949,6 +3027,45 @@ async function runTeamOrchestration(job: JobRecord): Promise<RunResult> {
             });
             continue;
           }
+        }
+
+        if (hasFailed && state.fixAttempts >= maxCycles) {
+          await addEvent(job.id, 'team.cycle_limit_reached', `Maximum cycle limit (${maxCycles}) reached. Generating final report.`);
+          
+          // Generate final report using the planner or a special summarizer prompt
+          const reportCommand = resolveRoleCommand(job.provider, 'planner', options.agentCommands);
+          const reportTask = `SYSTEM: The maximum execution cycles (${maxCycles}) have been reached. 
+Please analyze the current state of the project, summarize the achievements, and clearly identify the remaining problems that prevented successful completion.
+This is the FINAL REPORT before forced termination.`;
+          
+          const commonContext = (await jobStore.readCommonContext(job.id)) ?? '';
+          const finalReportRunner = runTeamCodexCommand(
+            job.provider,
+            applyTemplate(reportCommand, {
+              jobId: job.id,
+              provider: job.provider,
+              mode: job.mode,
+              repo: job.repo,
+              ref: job.ref,
+              role: 'planner',
+              task: reportTask,
+              workdir: workspaceDir,
+              commonContext,
+              dependencyOutputs: summarizeValueForTemplate(state.tasks.map(t => ({ id: t.id, status: t.status, error: t.error, output: t.output }))),
+            }),
+            workspaceDir,
+            120000
+          );
+
+          state.status = 'failed';
+          state.error = `Max cycle limit (${maxCycles}) reached. Final Report: ${finalReportRunner.stdout}`;
+          state = withTeamRunMetrics(state);
+          await persistTeamState(job, state, 'failed', 'max-cycles-reached');
+          await addEvent(job.id, 'team.failed', 'Team run terminated due to max cycle limit.');
+          return finalizeTeamRunResult(job.id, teamVisualization, options.keepTmuxSession, {
+            state: 'failed',
+            output: { report: finalReportRunner.stdout, parsed: finalReportRunner.parsed }
+          });
         }
 
         state.status = state.tasks.every((task) => task.status === 'succeeded') ? 'succeeded' : 'failed';
@@ -3043,12 +3160,57 @@ async function runTeamOrchestration(job: JobRecord): Promise<RunResult> {
             options,
             task,
             state.tasks,
+            state.mailbox ?? [],
             state.phase,
             workspaceDir,
             teamVisualization?.paneByRole[task.role],
           ),
         ),
       );
+
+    // 체크포인트 요약 생성 (단계 전환 시)
+    const currentPhase = toTeamTaskPhase(state.tasks);
+    const updatedTasks = results.reduce((accTasks, res) => {
+      const t = accTasks.find(it => it.id === res.taskId);
+      if (t) Object.assign(t, res.patch);
+      return accTasks;
+    }, [...state.tasks]);
+    const nextPhaseCandidate = toTeamTaskPhase(updatedTasks);
+
+    if (currentPhase !== nextPhaseCandidate && currentPhase !== 'completed') {
+       await addEvent(job.id, 'team.checkpoint_summarizing', `Phase transition: ${currentPhase} -> ${nextPhaseCandidate}. Generating summary with Synthesis Agent.`);
+       
+       const summaryTask = `SYSTEM: The current phase '${currentPhase}' has finished. 
+Please synthesize all agent outputs from this phase into a cohesive summary. 
+Include: key achievements, major decisions (from decision_log), and the current status of deliverables.`;
+       
+       const commonContext = (await jobStore.readCommonContext(job.id)) ?? '';
+       // Synthesis 에이전트 호출 (없으면 Planner로 폴백)
+       const summarizerRole = 'synthesis';
+       const summaryRunner = runTeamCodexCommand(
+         job.provider,
+         applyTemplate(resolveRoleCommand(job.provider, summarizerRole, options.agentCommands), {
+           jobId: job.id,
+           provider: job.provider,
+           mode: job.mode,
+           repo: job.repo,
+           ref: job.ref,
+           role: summarizerRole as any,
+           task: summaryTask,
+           workdir: workspaceDir,
+           commonContext,
+           dependencyOutputs: summarizeValueForTemplate(updatedTasks.filter(t => t.status === 'succeeded')),
+         }),
+         workspaceDir,
+         60000
+       );
+
+       state.checkpointSummary = summaryRunner.stdout;
+       await addEvent(job.id, 'team.checkpoint_completed', 'Phase summary generated by Synthesis Agent', {
+         phase: currentPhase,
+         summary: state.checkpointSummary,
+       });
+    }
 
       for (const result of results) {
         if (result.mailboxMessages && result.mailboxMessages.length > 0) {
@@ -3061,11 +3223,66 @@ async function runTeamOrchestration(job: JobRecord): Promise<RunResult> {
             });
           }
         }
+        
+        // 동적 팀 구성 반영 (Planner가 새로운 태스크를 제안한 경우)
+        const parsedOutput = asObject(result.patch.output?.parsed);
+        if (state.tasks.find(t => t.id === result.taskId)?.role === 'planner' && Array.isArray(parsedOutput.nextTasks)) {
+            const newTasks = normalizeTemplateTasks(parsedOutput.nextTasks).map(t => ({
+                ...t,
+                status: t.dependencies && t.dependencies.length > 0 ? 'blocked' as TeamTaskStatus : 'queued' as TeamTaskStatus,
+                attempt: 0
+            }));
+            state.tasks = newTasks; // 태스크 목록 전체 교체 (Planner의 동적 정의 수용)
+            await addEvent(job.id, 'team.dynamic_teaming_applied', `New team structure applied by Planner`, {
+                taskCount: newTasks.length
+            });
+        }
+
         state = applyTaskPatch(state, result.taskId, result.patch);
       }
 
       state.phase = toTeamTaskPhase(state.tasks);
       state = withTeamRunMetrics(state);
+
+      // HITL Mode: Step-by-Step 처리
+      if (options.hitlMode === 'step-by-step' && results.length > 0) {
+          state.status = 'waiting_approval';
+          state = withTeamRunMetrics(state);
+          await persistTeamState(job, state, 'verification_required', 'hitl-step-by-step-approval');
+          await addEvent(job.id, 'team.hitl_pause', 'Paused for step-by-step approval');
+          return finalizeTeamRunResult(job.id, teamVisualization, options.keepTmuxSession, { state: 'waiting_approval' });
+      }
+
+      // 라운드 테이블 (동기식 토론) 로직: 
+      // 만약 현재 단계에서 에이전트들 간의 추가 소통이 필요하다면 태스크를 완료시키지 않고 'queued'로 되돌려 재실행 유도
+      const hasOngoingDiscussion = results.some(r => 
+        (r.mailboxMessages || []).some(m => 
+            m.kind === 'instruction' || m.kind === 'question'
+        )
+      );
+
+      const MAX_ROUNDS = 3;
+      state.roundCount = state.roundCount || 0;
+
+      if (hasOngoingDiscussion && state.roundCount < MAX_ROUNDS) {
+          state.roundCount += 1;
+          await addEvent(job.id, 'team.round_table_iterating', `Round ${state.roundCount}/${MAX_ROUNDS}: Discussion ongoing.`, {
+              results: results.map(r => ({ taskId: r.taskId, messages: r.mailboxMessages?.length }))
+          });
+          
+          // 대화가 진행 중인 태스크들을 다시 큐에 넣어 재실행 (이전 결과를 들고 다시 대화)
+          for (const res of results) {
+              state = applyTaskPatch(state, res.taskId, {
+                  ...res.patch,
+                  status: 'queued', // 완료하지 않고 다시 실행 유도
+                  error: `Round ${state.roundCount} discussion continues...`
+              });
+          }
+          continue; // 이번 배치를 완료 처리하지 않고 루프 다시 시작
+      } else if (state.roundCount > 0) {
+          await addEvent(job.id, 'team.round_table_finalized', `Round Table finished after ${state.roundCount} rounds.`);
+          state.roundCount = 0; // 라운드 카운트 초기화
+      }
 
       const approvalResults = results.filter((result) => result.requiresApproval);
 
@@ -3188,6 +3405,7 @@ function resolveRoleCommand(
       developer: `${defaultPrompt} Implement changes in the repository and return modified file list.`,
       executor: `${defaultPrompt} Run commands/tests and report pass/fail with artifacts or commands executed.`,
       verifier: `${defaultPrompt} Validate the output of previous steps and provide pass/fail decision with remediation notes.`,
+      synthesis: `${defaultPrompt} Integrate multiple agent outputs into a cohesive summary or document.`,
     };
 
     return roleGuidance[role];
