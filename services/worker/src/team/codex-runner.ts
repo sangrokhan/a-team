@@ -195,19 +195,19 @@ export function extractLatestParsedObject(payload: string): Record<string, unkno
     candidates.push(line);
   }
 
-  let latest: Record<string, unknown> | undefined;
+  let merged: Record<string, unknown> = {};
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        latest = parsed as Record<string, unknown>;
+        merged = { ...merged, ...parsed };
       }
     } catch {
       continue;
     }
   }
 
-  return latest;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function runCodexCommand(

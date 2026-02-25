@@ -3,136 +3,69 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>A Team | Job History</title>
+    <title>A Team | Dashboard</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
+    
     <main class="shell">
       <header class="page-head">
         <div>
           <p class="eyebrow">A Team</p>
-          <h1>Job History</h1>
-          <p id="history-refresh-note" class="subline">Loading job history...</p>
+          <h1>Agent Workspace Dashboard</h1>
         </div>
         <nav class="top-nav">
-          <a href="/monitor/" class="top-nav-link">Monitoring</a>
-          <a href="/monitor/jobs.html" class="top-nav-link active">Job History</a>
+          <a href="/monitor/" class="top-nav-link">Real-time KPI</a>
+          <a href="/monitor/jobs.html" class="top-nav-link active">History & Timeline</a>
         </nav>
         <div class="head-controls">
-          <button id="history-refresh-now" type="button">Refresh now</button>
-          <label class="toggle">
-            <input id="history-auto-refresh" type="checkbox" checked />
-            <span>Auto refresh</span>
-          </label>
+          <button id="history-refresh-now" type="button">Refresh List</button>
         </div>
       </header>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Job Filters</h2>
-          <span id="job-count" class="subline">-</span>
-        </div>
-        <form id="history-filters" class="history-filters">
-          <label>
-            <span>상태</span>
-            <select id="history-status-filter">
-              <option value="">All</option>
-              <option value="queued">queued</option>
-              <option value="running">running</option>
-              <option value="waiting_approval">waiting_approval</option>
-              <option value="succeeded">succeeded</option>
-              <option value="failed">failed</option>
-              <option value="canceled">canceled</option>
-            </select>
-          </label>
-          <label>
-            <span>모드</span>
-            <select id="history-mode-filter">
-              <option value="">All</option>
-              <option value="autopilot">autopilot</option>
-              <option value="team">team</option>
-              <option value="ralph">ralph</option>
-              <option value="ultrawork">ultrawork</option>
-              <option value="pipeline">pipeline</option>
-            </select>
-          </label>
-          <label>
-            <span>Provider</span>
-            <select id="history-provider-filter">
-              <option value="">All</option>
-              <option value="codex">codex</option>
-              <option value="claude">claude</option>
-              <option value="gemini">gemini</option>
-            </select>
-          </label>
-          <label>
-            <span>Limit</span>
-            <select id="history-limit">
-              <option value="50">50</option>
-              <option value="100" selected>100</option>
-              <option value="200">200</option>
-              <option value="500">500</option>
-            </select>
-          </label>
-          <div class="form-actions">
-            <button id="history-apply" type="submit">Apply</button>
-            <button id="history-clear" type="button" class="ghost">Clear</button>
+      <div class="dashboard-layout">
+        <!-- 영역 1: 왼편 - 작업 히스토리 리스트 -->
+        <aside class="sidebar-panel">
+          <div class="panel-head" style="padding: 1rem; border-bottom: 1px solid var(--line);">
+            <h2>Job History</h2>
           </div>
-        </form>
-      </section>
+          <div class="sidebar-scroll">
+            <div id="job-list-container" class="table-wrap" style="margin-top: 0;">
+              <table style="min-width: unset; width: 100%;">
+                <tbody id="history-jobs-body">
+                  <tr><td class="empty">Loading jobs...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </aside>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Job List</h2>
-          <p id="history-status" class="subline">Select a job to inspect details.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>Status</th>
-                <th>Mode</th>
-                <th>Provider</th>
-                <th>Task</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody id="history-jobs-body">
-              <tr><td colspan="6" class="empty">No jobs loaded.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <div class="main-content">
+          <!-- 영역 2: 오른쪽 상단 - 단계별 에이전트 타임라인 매트릭스 -->
+          <section class="timeline-matrix-panel">
+            <div class="panel-head">
+              <h2>Timeline Matrix</h2>
+              <p id="selected-job-info" class="subline">Select a job to view timeline</p>
+            </div>
+            <div id="matrix-container" style="margin-top: 1rem;">
+              <p class="empty">Timeline will be rendered here...</p>
+            </div>
+          </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2 id="detail-title">Job Detail</h2>
-          <button id="refresh-selected" type="button">Refresh selected</button>
+          <!-- 영역 3: 오른쪽 하단 - 에이전트별 채팅 리스트 -->
+          <section class="chat-view-panel">
+            <div class="panel-head">
+              <h2 id="chat-title">Agent Logs & Conversation</h2>
+              <button id="refresh-selected" type="button" class="ghost" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Sync Logs</button>
+            </div>
+            <div id="chat-container" class="chat-scroll">
+              <p class="empty">Select an agent node from the matrix above to view detailed logs.</p>
+            </div>
+          </section>
         </div>
-        <div class="history-detail-grid">
-          <div class="drill-block">
-            <h3>Job Summary</h3>
-            <pre id="history-summary">Select a job to inspect.</pre>
-          </div>
-          <div class="drill-block">
-            <h3>Output</h3>
-            <pre id="history-output">-</pre>
-          </div>
-          <div class="drill-block">
-            <h3>Team State</h3>
-            <pre id="history-team">-</pre>
-          </div>
-          <div class="drill-block">
-            <h3>Event Timeline</h3>
-            <ul id="history-events" class="events">
-              <li class="empty">No events yet.</li>
-            </ul>
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
 
     <script type="module" src="./jobs.js"></script>
