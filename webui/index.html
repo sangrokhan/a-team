@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Codex Control Surface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Control Surface</p>
+        <h1>Codex Command Grid</h1>
+      </div>
+      <div class="topbar-meta">
+        <div class="connection-controls">
+          <label class="visually-hidden" for="endpointInput">WebSocket endpoint</label>
+          <input id="endpointInput" type="text" placeholder="ws://127.0.0.1:8765" />
+          <button id="connectBtn" type="button">Connect</button>
+          <button id="disconnectBtn" type="button" disabled>Disconnect</button>
+        </div>
+        <span id="transportStatus" class="status-pill mode-sim">Simulation</span>
+        <span id="globalStatus" class="status-pill idle">Idle</span>
+        <button id="clearLogsBtn" class="ghost-btn" type="button">Clear Output</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel locations" aria-labelledby="locationsTitle">
+        <div class="panel-head">
+          <h2 id="locationsTitle">Locations</h2>
+          <p>Per-target command controls</p>
+        </div>
+        <div id="locationList" class="location-list"></div>
+      </section>
+
+      <section class="panel console" aria-labelledby="consoleTitle">
+        <div class="panel-head">
+          <h2 id="consoleTitle">Command Console</h2>
+          <p>CLI-style input and streamed output</p>
+        </div>
+
+        <div id="output" class="output" role="log" aria-live="polite" aria-label="command output"></div>
+
+        <form id="commandForm" class="composer">
+          <label class="visually-hidden" for="targetLocation">Target location</label>
+          <select id="targetLocation"></select>
+
+          <label class="visually-hidden" for="commandInput">Command input</label>
+          <input
+            id="commandInput"
+            name="command"
+            type="text"
+            autocomplete="off"
+            placeholder="Type a command or prompt. Example: /thread/start --cwd /workspace"
+            required
+          />
+
+          <button id="sendBtn" type="submit">Send</button>
+        </form>
+
+        <div class="quick-actions">
+          <button type="button" data-quick="/thread/start">/thread/start</button>
+          <button type="button" data-quick="/turn/start">/turn/start</button>
+          <button type="button" data-quick="/turn/interrupt">/turn/interrupt</button>
+          <button type="button" data-quick="status --verbose">status --verbose</button>
+        </div>
+      </section>
+
+      <section class="panel stream" aria-labelledby="streamTitle">
+        <div class="panel-head">
+          <h2 id="streamTitle">Flow View</h2>
+          <p>Recent events and routing map</p>
+        </div>
+
+        <div class="route-map" aria-hidden="true">
+          <div class="node core">Core</div>
+          <div class="path"></div>
+          <div class="node target" id="routeTarget">Select location</div>
+        </div>
+
+        <ul id="eventList" class="event-list"></ul>
+      </section>
+    </main>
+  </div>
+
+  <template id="locationCardTemplate">
+    <article class="location-card">
+      <header>
+        <h3></h3>
+        <span class="dot"></span>
+      </header>
+      <p class="meta"></p>
+      <div class="controls">
+        <button type="button" class="new-thread-btn">New Thread</button>
+        <button type="button" class="pause-btn">Pause</button>
+        <button type="button" class="interrupt-btn">Interrupt</button>
+      </div>
+    </article>
+  </template>
+
+  <template id="logLineTemplate">
+    <div class="line">
+      <span class="stamp"></span>
+      <span class="channel"></span>
+      <span class="text"></span>
+    </div>
+  </template>
+
+  <template id="eventItemTemplate">
+    <li>
+      <div class="event-head">
+        <span class="tag"></span>
+        <time></time>
+      </div>
+      <p></p>
+    </li>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
