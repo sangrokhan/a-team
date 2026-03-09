@@ -364,7 +364,7 @@ h1 {
 
 .composer {
   display: grid;
-  grid-template-columns: 190px 1fr auto;
+  grid-template-columns: 170px 190px 1fr auto;
   gap: 8px;
   padding: 10px;
   border-top: 1px solid rgba(207, 215, 230, 0.7);
@@ -415,6 +415,162 @@ h1 {
 
 .stream {
   min-height: 0;
+  overflow: auto;
+}
+
+.workflow-studio {
+  margin: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(180deg, #fbfdff, #f6fbff);
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.workflow-head p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+}
+
+.workflow-form {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-form input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.stage-editor-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.stage-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.stage-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stage-title {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.stage-desc {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.add-agent-btn {
+  border: 1px solid rgba(0, 116, 212, 0.35);
+  background: #f4f9ff;
+  color: #0b4f8c;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agent-list {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-row {
+  border: 1px dashed rgba(95, 109, 130, 0.35);
+  border-radius: 8px;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.agent-row-head {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.agent-name-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.agent-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.remove-agent-btn {
+  border: 1px solid rgba(229, 72, 77, 0.32);
+  background: #fff4f4;
+  color: #9f1d2f;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agent-instruction-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  resize: vertical;
+  min-height: 54px;
+}
+
+.studio-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.studio-actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .route-map {
@@ -546,5 +702,13 @@ h1 {
     grid-template-columns: 58px 58px 1fr;
     gap: 6px;
     font-size: 11px;
+  }
+
+  .studio-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-row-head {
+    grid-template-columns: 1fr;
   }
 }

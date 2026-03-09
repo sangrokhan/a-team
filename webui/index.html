@@ -51,6 +51,9 @@
           <label class="visually-hidden" for="targetLocation">Target location</label>
           <select id="targetLocation"></select>
 
+          <label class="visually-hidden" for="workflowSelect">Workflow</label>
+          <select id="workflowSelect"></select>
+
           <label class="visually-hidden" for="commandInput">Command input</label>
           <input
             id="commandInput"
@@ -75,8 +78,27 @@
       <section class="panel stream" aria-labelledby="streamTitle">
         <div class="panel-head">
           <h2 id="streamTitle">Flow View</h2>
-          <p>Recent events and routing map</p>
+          <p>Workflow studio, routing map, recent events</p>
         </div>
+
+        <section class="workflow-studio" aria-labelledby="workflowStudioTitle">
+          <header class="workflow-head">
+            <h3 id="workflowStudioTitle">Workflow Studio</h3>
+            <p>Fixed-stage agent injections (edit/extend)</p>
+          </header>
+          <div class="workflow-form">
+            <label class="visually-hidden" for="workflowNameInput">Workflow name</label>
+            <input id="workflowNameInput" type="text" placeholder="Workflow name" />
+            <label class="visually-hidden" for="workflowDescInput">Workflow description</label>
+            <input id="workflowDescInput" type="text" placeholder="Workflow description" />
+          </div>
+          <div id="stageEditorGrid" class="stage-editor-grid"></div>
+          <div class="studio-actions">
+            <button id="saveWorkflowBtn" type="button">Save Workflow</button>
+            <button id="duplicateWorkflowBtn" type="button">Duplicate</button>
+            <button id="resetWorkflowBtn" type="button">Reset Defaults</button>
+          </div>
+        </section>
 
         <div class="route-map" aria-hidden="true">
           <div class="node core">Core</div>
@@ -122,6 +144,33 @@
     </li>
   </template>
 
-  <script type="module" src="./app.js"></script>
+  <template id="stageCardTemplate">
+    <section class="stage-card">
+      <header>
+        <div>
+          <h4 class="stage-title"></h4>
+          <p class="stage-desc"></p>
+        </div>
+        <button type="button" class="add-agent-btn">Add Agent</button>
+      </header>
+      <div class="agent-list"></div>
+    </section>
+  </template>
+
+  <template id="agentRowTemplate">
+    <div class="agent-row">
+      <div class="agent-row-head">
+        <input class="agent-name-input" type="text" placeholder="agent name" />
+        <label class="agent-enabled">
+          <input class="agent-enabled-input" type="checkbox" checked />
+          enabled
+        </label>
+        <button type="button" class="remove-agent-btn">Remove</button>
+      </div>
+      <textarea class="agent-instruction-input" rows="2" placeholder="injection instruction"></textarea>
+    </div>
+  </template>
+
+  <script type="module" src="./dist/main.js"></script>
 </body>
 </html>

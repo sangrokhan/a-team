@@ -1,10 +1,16 @@
 # Web UI Prototype
 
-First-pass UI for Codex-like command input/output with per-location controls and a live `app_server` WebSocket layer.
+TypeScript-based UI for Codex-like command input/output with per-location controls, live `app_server` WebSocket layer, and visual workflow/agent-injection configuration.
 
 ## Run
 
-From repository root:
+Compile TS:
+
+```bash
+tsc -p webui/tsconfig.json
+```
+
+Serve static files from repository root:
 
 ```bash
 python3 -m http.server 8080
@@ -33,6 +39,19 @@ Then in the UI:
 - CLI-style input/output console
 - Per-location control cards (pause, interrupt, queue/running state)
 - Per-location `threadId` / `turnId` tracking
+- Workflow Studio:
+  - select workflow per chat
+  - fixed-stage injection structure
+  - edit/add/remove agents visually
+  - duplicate/reset workflows
 - Flow panel with route target and recent event stream
 - WebSocket JSON-RPC connection (`initialize`, `thread/start`, `turn/start`, `turn/interrupt`)
 - Quick command chips for common actions
+
+## Source Layout
+
+- `src/main.ts`: orchestration, command flow, stage injection runtime
+- `src/state.ts`: location/workflow state and helpers
+- `src/transport.ts`: WebSocket JSON-RPC transport layer
+- `src/ui.ts`: rendering and visual editor wiring
+- `src/config.ts`, `src/types.ts`, `src/utils.ts`: config/types/utilities
