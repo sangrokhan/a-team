@@ -229,3 +229,10 @@ archieve
 
 # Brainstorm visual companion
 .superpowers/
+node_modules/
+dist/
+teams.yaml
+.a-team/runs/
+.a-team/state/
+web/dist/
+web/node_modules/
