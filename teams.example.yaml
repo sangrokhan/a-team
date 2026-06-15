@@ -1,0 +1,18 @@
+auth:
+  password: "${ATEAM_PASSWORD}"   # set ATEAM_PASSWORD in the environment
+server:
+  host: "0.0.0.0"
+  port: 10000
+teams:
+  - id: alpha
+    name: "Team Alpha — web build"
+    orchestrator:
+      model: opus
+      prompt: >
+        You are the team lead. Read the task, break it into subtasks, and assign
+        each subtask to exactly one agent by id. Respond ONLY with a fenced ```json
+        block: {"assignments":[{"agent":"<id>","subtask":"<text>"}]}.
+    agents:
+      - { id: engineer, role: "Senior full-stack engineer", model: sonnet }
+      - { id: reviewer, role: "Critical code reviewer",     model: sonnet }
+      - { id: tester,   role: "QA / test author",           model: sonnet }
