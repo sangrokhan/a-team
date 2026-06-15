@@ -25,4 +25,14 @@ describe("EventStore", () => {
     expect(evs.map(e => e.type)).toEqual(["job.created", "agent.started", "agent.done"]);
     expect(typeof evs[0].ts).toBe("number");
   });
+
+  it("lists jobs newest-first", () => {
+    const s = store();
+    const a = s.createJob({ teamId: "alpha", task: "first" });
+    const b = s.createJob({ teamId: "beta", task: "second" });
+    const ids = s.listJobs().map((j) => j.id);
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
+    expect(ids[0]).toBe(b.id);
+  });
 });

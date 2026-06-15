@@ -1,4 +1,4 @@
-import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Event, JobRecord } from "./types.js";
@@ -48,5 +48,14 @@ export class EventStore {
     const p = join(this.jobDir(id), "events.jsonl");
     if (!existsSync(p)) return [];
     return readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+  }
+
+  listJobs(): JobRecord[] {
+    const dir = join(this.root, "jobs");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .map((id) => this.readRecord(id))
+      .filter((r): r is JobRecord => r !== null)
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 }
