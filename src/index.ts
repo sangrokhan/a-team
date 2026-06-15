@@ -7,6 +7,9 @@ const configPath = process.env.ATEAM_CONFIG ?? "teams.yaml";
 const cfg = loadConfig(configPath);
 
 const skipPerms = process.env.ATEAM_SKIP_PERMISSIONS !== "0";
+if (skipPerms) {
+  console.warn("⚠️  a-team: agents run claude with --dangerously-skip-permissions (arbitrary command execution). Set ATEAM_SKIP_PERMISSIONS=0 to disable. Keep the login password strong and avoid untrusted networks.");
+}
 const webDist = join(process.cwd(), "web", "dist");
 
 const app = buildServer(cfg, {
