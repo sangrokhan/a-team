@@ -1,7 +1,8 @@
 export interface AgentDef {
   id: string;
-  role: string;            // becomes the claude system prompt
-  model?: string;          // e.g. "sonnet" | "opus"
+  name?: string;          // display name; defaults to id
+  role: string;            // persona / system prompt
+  model?: string;
 }
 
 export interface OrchestratorDef {

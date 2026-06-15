@@ -25,6 +25,7 @@ export function loadConfig(path: string): Config {
     for (const a of team.agents ?? []) {
       if (agentIds.has(a.id)) throw new Error(`config: duplicate agent id ${a.id} in team ${team.id}`);
       agentIds.add(a.id);
+      a.name = a.name ?? a.id;
     }
   }
   return raw;

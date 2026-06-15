@@ -34,4 +34,10 @@ describe("loadConfig", () => {
     delete process.env.TEST_PW;
     expect(() => loadConfig(tmpFile("teams.yaml", VALID))).toThrow(/password/i);
   });
+
+  it("defaults agent name to id when omitted", () => {
+    process.env.TEST_PW = "s3cret";
+    const cfg = loadConfig(tmpFile("teams.yaml", VALID));
+    expect(cfg.teams[0].agents[0].name).toBe("engineer");
+  });
 });
