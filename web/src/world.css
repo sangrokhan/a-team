@@ -1,0 +1,2 @@
+@keyframes ateam-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+body { margin: 0; background: #020617; }

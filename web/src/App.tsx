@@ -1,50 +1,69 @@
-import { useEffect, useReducer, useState } from "react";
-import type { Team, Event } from "./types.js";
-import { fetchTeams, connectEvents } from "./api.js";
-import { applyEvent, emptyTeamState, type TeamState } from "./store.js";
-import { TeamPanel } from "./TeamPanel.js";
-import { ChatThread } from "./ChatThread.js";
-import { ConfigEditor } from "./ConfigEditor.js";
+import { useCallback, useEffect, useReducer, useState } from "react";
+import type { Team, Event, AgentStatus } from "./types.js";
+import { fetchTeams, fetchJobs, connectEvents } from "./api.js";
+import { applyEvent, emptyWorld, agentKey, type WorldState } from "./world/store.js";
+import { useMovement } from "./world/useMovement.js";
+import { Floor } from "./world/Floor.js";
+import { AgentPanel } from "./panels/AgentPanel.js";
+import { LeaderPanel } from "./panels/LeaderPanel.js";
+import { AddTeamDialog, AddAgentDialog } from "./panels/AddDialogs.js";
 import { Login } from "./Login.js";
 
-type States = Record<string, TeamState>;
-function reducer(s: States, e: Event): States {
-  return { ...s, [e.teamId]: applyEvent(s[e.teamId] ?? emptyTeamState(), e) };
-}
+type Sel = { kind: "agent"; teamId: string; agentId: string } | { kind: "leader"; teamId: string } | null;
+type Dlg = { kind: "team" } | { kind: "agent"; teamId: string } | null;
+
+function reducer(s: WorldState, e: Event): WorldState { return applyEvent(s, e); }
 
 export function App() {
   const [authed, setAuthed] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [states, dispatch] = useReducer(reducer, {});
-  const [showConfig, setShowConfig] = useState(false);
+  const [world, dispatch] = useReducer(reducer, emptyWorld());
+  const [sel, setSel] = useState<Sel>(null);
+  const [dlg, setDlg] = useState<Dlg>(null);
+
+  const reloadTeams = useCallback(() => { fetchTeams().then(setTeams).catch(() => setAuthed(false)); }, []);
 
   useEffect(() => {
     if (!authed) return;
-    fetchTeams().then(setTeams).catch(() => setAuthed(false));
+    reloadTeams();
+    fetchJobs().catch(() => {});
     const ws = connectEvents((e) => dispatch(e));
     return () => ws.close();
-  }, [authed]);
+  }, [authed, reloadTeams]);
+
+  const statusOf = useCallback(
+    (teamId: string, agentId: string): AgentStatus => world.agents[agentKey(teamId, agentId)]?.status ?? "idle",
+    [world],
+  );
+  const positions = useMovement(teams, statusOf);
 
   if (!authed) return <Login onOk={() => setAuthed(true)} />;
-  if (showConfig) return (<div><button onClick={() => setShowConfig(false)}>← back</button><ConfigEditor /></div>);
+
+  const selAgent = sel?.kind === "agent"
+    ? teams.find((t) => t.id === sel.teamId)?.agents.find((a) => a.id === sel.agentId) : undefined;
+  const selLeaderTeam = sel?.kind === "leader" ? teams.find((t) => t.id === sel.teamId) : undefined;
 
   return (
-    <div style={{ padding: 12, background: "#020617", minHeight: "100vh", color: "#e2e8f0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h2>a-team</h2><button onClick={() => setShowConfig(true)}>⚙ Config</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {teams.map((t) => {
-          const st = states[t.id] ?? emptyTeamState();
-          return (
-            <div key={t.id} style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: 10 }}>
-              <h3>{t.name}</h3>
-              <TeamPanel team={t} status={st.agentStatus} />
-              <ChatThread team={t} chat={st.chat} />
-            </div>
-          );
-        })}
-      </div>
+    <div style={{ minHeight: "100vh", color: "#e2e8f0", padding: 12 }}>
+      <h2 style={{ margin: "4px 0 12px" }}>a-team</h2>
+      <Floor
+        teams={teams} positions={positions} statusOf={statusOf}
+        selectedKey={sel?.kind === "agent" ? agentKey(sel.teamId, sel.agentId) : null}
+        onSelectAgent={(teamId, agentId) => setSel({ kind: "agent", teamId, agentId })}
+        onSelectLeader={(teamId) => setSel({ kind: "leader", teamId })}
+        onAddTeam={() => setDlg({ kind: "team" })}
+        onAddAgent={(teamId) => setDlg({ kind: "agent", teamId })}
+      />
+
+      {selAgent && sel?.kind === "agent" && (
+        <AgentPanel teamId={sel.teamId} agent={selAgent} status={statusOf(sel.teamId, selAgent.id)}
+          log={world.agents[agentKey(sel.teamId, selAgent.id)] ?? { status: "idle", output: "", history: [] }}
+          onClose={() => setSel(null)} onSaved={reloadTeams} />
+      )}
+      {selLeaderTeam && <LeaderPanel team={selLeaderTeam} onClose={() => setSel(null)} />}
+
+      {dlg?.kind === "team" && <AddTeamDialog onDone={() => { setDlg(null); reloadTeams(); }} onCancel={() => setDlg(null)} />}
+      {dlg?.kind === "agent" && <AddAgentDialog teamId={dlg.teamId} onDone={() => { setDlg(null); reloadTeams(); }} onCancel={() => setDlg(null)} />}
     </div>
   );
 }
