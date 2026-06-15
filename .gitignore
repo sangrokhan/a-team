@@ -226,3 +226,6 @@ services/*/dist/
 # Local a-team runtime state
 a-team/state/
 archieve
+
+# Brainstorm visual companion
+.superpowers/
