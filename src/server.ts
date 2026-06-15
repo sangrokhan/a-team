@@ -6,11 +6,12 @@ import type { Config } from "./types.js";
 import { EventStore } from "./eventStore.js";
 import { Dispatcher } from "./dispatcher.js";
 import { AuthStore } from "./auth.js";
+import { RosterStore, HttpError } from "./rosterStore.js";
 
 export interface ServerDeps {
   bin: string; runRoot: string; stateRoot: string; extraArgs: string[];
-  webDir: string | null;          // built React app, or null in tests
-  configPath?: string;            // for the config editor
+  webDir: string | null;
+  configPath?: string;
 }
 
 const COOKIE = "ateam_sid";
@@ -19,6 +20,7 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const store = new EventStore(deps.stateRoot);
   const auth = new AuthStore(cfg.auth.password);
+  const roster = new RosterStore(cfg.teams, deps.configPath ?? null);
   const dispatcher = new Dispatcher(store, { bin: deps.bin, runRoot: deps.runRoot, extraArgs: deps.extraArgs });
 
   app.register(websocket);
@@ -29,7 +31,11 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
     return raw?.slice(COOKIE.length + 1);
   }
 
-  // Auth guard for /api except /api/login
+  function fail(reply: any, err: unknown) {
+    if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
+    return reply.code(500).send({ error: String(err) });
+  }
+
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
     if (req.url === "/api/login") return;
@@ -45,20 +51,48 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
 
   app.post("/api/logout", async (req, reply) => { const s = sid(req); if (s) auth.logout(s); reply.send({ ok: true }); });
 
-  app.get("/api/teams", async () => cfg.teams);
+  app.get("/api/teams", async () => roster.getTeams());
 
   app.post("/api/teams/:teamId/tasks", async (req, reply) => {
     const { teamId } = req.params as any;
     const { task, agent } = (req.body as any) ?? {};
-    const team = cfg.teams.find(t => t.id === teamId);
+    const team = roster.getTeam(teamId);
     if (!team) return reply.code(404).send({ error: "no such team" });
-    // fire and forget; events stream over WS
     const p = agent ? dispatcher.runDirect(team, agent, task) : dispatcher.dispatch(team, task);
     const job = await p.catch(() => null);
     reply.send({ jobId: job?.id ?? null });
   });
 
-  // Config editor (behind auth via the hook above)
+  app.patch("/api/teams/:teamId/agents/:agentId", async (req, reply) => {
+    const { teamId, agentId } = req.params as any;
+    const { name, role } = (req.body as any) ?? {};
+    try { reply.send(roster.updateAgent(teamId, agentId, { name, role })); }
+    catch (e) { fail(reply, e); }
+  });
+
+  app.post("/api/teams/:teamId/agents", async (req, reply) => {
+    const { teamId } = req.params as any;
+    const { id, role, name } = (req.body as any) ?? {};
+    if (!id || !role) return reply.code(400).send({ error: "id and role required" });
+    try { reply.send(roster.addAgent(teamId, { id, role, name })); }
+    catch (e) { fail(reply, e); }
+  });
+
+  app.post("/api/teams", async (req, reply) => {
+    const { id, name } = (req.body as any) ?? {};
+    if (!id || !name) return reply.code(400).send({ error: "id and name required" });
+    try { reply.send(roster.addTeam({ id, name })); }
+    catch (e) { fail(reply, e); }
+  });
+
+  app.get("/api/jobs", async (req) => {
+    const { agent, team } = (req.query as any) ?? {};
+    let jobs = store.listJobs();
+    if (team) jobs = jobs.filter((j) => j.teamId === team);
+    if (agent) jobs = jobs.filter((j) => j.target === agent || store.readEvents(j.id).some((e) => e.agentId === agent));
+    return jobs.slice(0, 50);
+  });
+
   app.get("/api/config", async () => {
     if (!deps.configPath || !existsSync(deps.configPath)) return { content: "" };
     return { content: readFileSync(deps.configPath, "utf8") };
@@ -69,7 +103,6 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
     reply.send({ ok: true, note: "restart to apply" });
   });
 
-  // WebSocket: push every event to all authenticated sockets
   app.register(async (scope) => {
     scope.get("/ws", { websocket: true }, (socket, req) => {
       if (!auth.valid(sid(req))) { socket.close(); return; }
@@ -83,7 +116,7 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
     app.register(fstatic, { root: deps.webDir });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api/")) return reply.code(404).send({ error: "not found" });
-      reply.sendFile("index.html");           // SPA fallback
+      reply.sendFile("index.html");
     });
   }
 
