@@ -33,7 +33,7 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
     if (req.url === "/api/login") return;
-    if (!auth.valid(sid(req))) reply.code(401).send({ error: "unauthorized" });
+    if (!auth.valid(sid(req))) return reply.code(401).send({ error: "unauthorized" });
   });
 
   app.post("/api/login", async (req, reply) => {
@@ -59,7 +59,7 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
   });
 
   // Config editor (behind auth via the hook above)
-  app.get("/api/config", async (reply) => {
+  app.get("/api/config", async () => {
     if (!deps.configPath || !existsSync(deps.configPath)) return { content: "" };
     return { content: readFileSync(deps.configPath, "utf8") };
   });
@@ -75,6 +75,7 @@ export function buildServer(cfg: Config, deps: ServerDeps): FastifyInstance {
       if (!auth.valid(sid(req))) { socket.close(); return; }
       const off = store.onEvent((e) => { try { socket.send(JSON.stringify(e)); } catch {} });
       socket.on("close", off);
+      socket.on("error", off);
     });
   });
 
