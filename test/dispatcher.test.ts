@@ -41,4 +41,13 @@ describe("Dispatcher", () => {
     expect(types.filter(t => t === "agent.started")).toHaveLength(1);
     expect(store.readRecord(job.id)?.status).toBe("done");
   });
+
+  it("runDirect with an unknown agent ends in error, not a hang", async () => {
+    const { store, d } = makeDispatcher();
+    const job = await d.runDirect(team, "ghost", "do something");
+    const types = store.readEvents(job.id).map(e => e.type);
+    expect(types).toContain("agent.error");
+    expect(types).toContain("job.done");
+    expect(store.readRecord(job.id)?.status).toBe("error");
+  });
 });

@@ -57,9 +57,15 @@ export class Dispatcher {
 
   async runDirect(team: Team, agentId: string, message: string): Promise<JobRecord> {
     const job = this.store.createJob({ teamId: team.id, task: message, target: agentId });
-    const ok = await this.runOne(job, team, agentId, message);
-    this.store.setStatus(job.id, ok ? "done" : "error");
-    this.store.appendEvent({ jobId: job.id, teamId: team.id, type: "job.done", payload: { status: ok ? "done" : "error" } });
+    try {
+      if (!team.agents.some(a => a.id === agentId)) throw new Error(`unknown agent ${agentId}`);
+      const ok = await this.runOne(job, team, agentId, message);
+      this.store.setStatus(job.id, ok ? "done" : "error");
+    } catch (err) {
+      this.store.appendEvent({ jobId: job.id, teamId: team.id, agentId, type: "agent.error", payload: { error: String(err) } });
+      this.store.setStatus(job.id, "error");
+    }
+    this.store.appendEvent({ jobId: job.id, teamId: team.id, type: "job.done", payload: { status: this.store.readRecord(job.id)?.status } });
     return this.store.readRecord(job.id)!;
   }
 }
